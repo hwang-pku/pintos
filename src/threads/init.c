@@ -134,6 +134,71 @@ pintos_init (void)
     run_actions (argv);
   } else {
     // TODO: no command line passed to kernel. Run interactively 
+	char whoami[] = "whoami";
+	char exit[] = "exit";
+	char tmp[65], ch;
+	while(1)
+	{
+		printf ("PKUOS>");
+		int len = 0;
+		while((ch = (char) input_getc()) != '\r')
+    {
+      if (32 <= ch && ch <= 126)
+      {
+        putchar(ch);
+        if(len < 64)
+          tmp[len] = ch;
+        len ++;
+      }
+      else if(ch == '\b' && len > 0)
+      {
+        putchar('\b');
+        putchar(' ');
+        putchar('\b');
+        len --;
+      }
+    }
+		putchar('\n');
+    if(len >= 64)
+    {
+      puts("invalid command\n");
+      continue;
+    }
+		tmp[len] = 0;
+		if(len == 6)
+		{
+			int flag = 0;
+			for(int i=0;i<6;i++)
+				if(tmp[i] != whoami[i])
+				{
+					flag = 1;
+					break;
+				}
+			if(flag)
+			{
+				puts("invalid command");
+				continue;
+			}
+			puts("2000013065");
+		}
+		else if(len == 4)
+		{
+			int flag = 0;
+			for(int i=0;i<4;i++)
+				if(tmp[i] != exit[i])
+				{
+					flag = 1;
+					break;
+				}
+			if(flag)
+				puts("invalid command");
+			else
+					break;
+		}
+		else
+				puts("invalid command");
+				
+	}
   }
 
   /* Finish up. */
