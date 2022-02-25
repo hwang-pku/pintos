@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "lib/kernel/list.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -582,3 +583,21 @@ allocate_tid (void)
 /** Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+/** Compares the waken_time between two threads */
+bool
+waken_time_less (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  const struct thread *pa = list_entry(a, struct thread, elem);
+  const struct thread *pb = list_entry(b, struct thread, elem);
+  return pa -> waken_time < pb -> waken_time;
+}
+
+/** Compares the priority between two threads */
+bool
+priority_larger (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  const struct thread *pa = list_entry(a, struct thread, elem);
+  const struct thread *pb = list_entry(b, struct thread, elem);
+  return pa -> priority < pb -> priority;
+}

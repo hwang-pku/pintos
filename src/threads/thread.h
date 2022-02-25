@@ -90,6 +90,9 @@ struct thread
     int priority;                       /**< Priority. */
     struct list_elem allelem;           /**< List element for all threads list. */
 
+    /* shared between thread.c and timer.c */
+    int64_t waken_time; 
+
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
 
@@ -137,5 +140,8 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+bool waken_time_less (const struct list_elem *, const struct list_elem *, void *);
+bool priority_larger (const struct list_elem *, const struct list_elem *, void *);
 
 #endif /**< threads/thread.h */
