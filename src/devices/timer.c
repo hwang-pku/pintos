@@ -184,12 +184,15 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
+  struct thread *pcur_thread = thread_current();
   while(!list_empty(&sleeping_thread_list))
   {
     struct list_elem *e = list_front(&sleeping_thread_list);
     struct thread *p = list_entry (e, struct thread, elem);
     if (p -> waken_time > ticks)
       break;
+    if (pcur_thread -> priority < p -> priority)
+      intr_yield_on_return();
     list_remove(e);
     thread_unblock(p);
   }
