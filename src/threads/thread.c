@@ -344,13 +344,16 @@ thread_set_priority (int new_priority)
 {
   if (thread_mlfqs)
     return;
+  /*
   if (thread_get_priority() == thread_get_real_priority())
   {
     thread_current ()->priority = new_priority;
     if (thread_current () -> donate_to != NULL)
       update_donation (thread_current ()->donate_to, new_priority);
   }
+  */
   thread_current ()->real_priority = new_priority;
+  restore_donation ();
   if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem) -> priority)
     thread_yield();
 }
@@ -393,19 +396,20 @@ void
 restore_donation ()
 {
   enum intr_level old_level = intr_disable();
-  for (struct list_elem *e = list_begin (&all_list); e != list_end (&all_list);
+
+  int max_priority = thread_get_real_priority();
+  for (struct list_elem *e = list_begin (&thread_current ()->locks_held); e != list_end (&thread_current ()->locks_held);
        e = list_next (e))
     {
-      struct thread *t = list_entry (e, struct thread, allelem);
-      if(t->donate_to == thread_current())
-        t->donate_to = NULL;
+      struct lock *l = list_entry (e, struct lock, elem);
+      if (max_priority < l->max_priority)
+        max_priority = l->max_priority;
     }
-  thread_current ()->priority = thread_current ()->real_priority;
+
+  thread_current ()->priority = max_priority;
+
   if (!list_empty(&ready_list))
-  {
     list_sort(&ready_list, priority_larger, NULL);
-    ASSERT (list_front(&ready_list) != NULL);
-  }
   intr_set_level(old_level);
 }
 
@@ -540,6 +544,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->magic = THREAD_MAGIC;
+  list_init(&t->locks_held);
   if (!thread_mlfqs)
   {
     t->priority = priority;

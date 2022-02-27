@@ -90,6 +90,7 @@ struct thread
     int priority;                       /**< Priority. */
     int real_priority;                  /**< Actual priority. */
     struct thread *donate_to;           /**< The thread that this thread donates to. */
+    struct list locks_held;             /**< The threads that donates to this thread . */
     struct list_elem allelem;           /**< List element for all threads list. */
 
     /* shared between thread.c and timer.c */
