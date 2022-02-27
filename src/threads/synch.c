@@ -70,9 +70,12 @@ sema_down (struct semaphore *sema)
     {
       //list_push_back (&sema->waiters, &thread_current ()->elem);
       list_insert_ordered(&sema->waiters, &thread_current() -> elem, priority_larger, NULL);
+      ASSERT (list_front(&sema -> waiters) != NULL);
       thread_block ();
     }
   sema->value--;
+  if (!list_empty(&sema->waiters))
+    ASSERT (list_front(&sema -> waiters) != NULL);
   intr_set_level (old_level);
 }
 
@@ -198,15 +201,16 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  //add stuff here
   if(!lock_try_acquire(lock))
   {
-
+    // donation happens here
+    donate_to_thread(lock->holder);
     sema_down(&lock->semaphore);
     lock->holder = thread_current ();
   }
 
 //  sema_down (&lock->semaphore);
+//  lock->holder = thread_current ();
 }
 
 /** Tries to acquires LOCK and returns true if successful or false
@@ -241,6 +245,7 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
+  restore_donation();
   sema_up (&lock->semaphore);
 }
 

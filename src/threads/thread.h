@@ -88,6 +88,8 @@ struct thread
     char name[16];                      /**< Name (for debugging purposes). */
     uint8_t *stack;                     /**< Saved stack pointer. */
     int priority;                       /**< Priority. */
+    int real_priority;                  /**< Actual priority. */
+    struct thread *donate_to;           /**< The thread that this thread donates to. */
     struct list_elem allelem;           /**< List element for all threads list. */
 
     /* shared between thread.c and timer.c */
@@ -135,6 +137,11 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+int thread_get_real_priority (void);
+
+void donate_to_thread (struct thread *);
+void update_donation (struct thread *, int);
+void restore_donation ();
 
 int thread_get_nice (void);
 void thread_set_nice (int);
