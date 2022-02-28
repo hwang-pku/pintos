@@ -90,6 +90,7 @@ struct thread
     int priority;                       /**< Priority. */
     int real_priority;                  /**< Actual priority. */
     struct thread *donate_to;           /**< The thread that this thread donates to. */
+    struct lock *waiting_on_lock;       /**< The lock this thread is waiting on. */
     struct list locks_held;             /**< The threads that donates to this thread . */
     struct list_elem allelem;           /**< List element for all threads list. */
 
@@ -141,7 +142,7 @@ void thread_set_priority (int);
 int thread_get_real_priority (void);
 
 void donate_to_thread (struct thread *);
-void update_donation (struct thread *, int);
+void update_donation (struct thread *);
 void restore_donation ();
 
 int thread_get_nice (void);

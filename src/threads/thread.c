@@ -365,13 +365,22 @@ donate_to_thread (struct thread *p)
   thread_current() -> donate_to = p;
   //bool yield = p->priority < thread_current()->priority;
   enum intr_level old_level = intr_disable ();
-  update_donation(p, thread_get_priority ());
+  update_donation(p);
   if (!list_empty(&ready_list))
-  {
     list_sort(&ready_list, priority_larger, NULL);
-    ASSERT (list_front(&ready_list) != NULL);
+//  {
+//    ASSERT (list_front(&ready_list) != NULL);
+//  }
+  /*for (struct list_elem *e = list_begin (&ready_list); e != list_end (&ready_list);
+       e = list_next (e))
+  {
+    struct thread *t = list_entry (e, struct thread, elem);
+    printf("%d, ", t->priority);
   }
+  printf("\n");*/
+//printf("%d", p->priority);
   intr_set_level(old_level);
+  thread_yield();
 
   //if (yield)
   //  thread_yield();
@@ -379,16 +388,36 @@ donate_to_thread (struct thread *p)
 
 /** Updates the donated priority. */
 void
-update_donation (struct thread *p, int priority)
+update_donation (struct thread *p)
 {
-//  enum intr_level old_level = intr_disable();
+  enum intr_level old_level = intr_disable();
+  int max_priority = p->real_priority;
+  for (struct list_elem *e = list_begin (&p->locks_held); e != list_end (&p->locks_held);
+       e = list_next (e))
+    {
+      struct lock *l = list_entry (e, struct lock, elem);
+      if (max_priority < l->max_priority)
+        max_priority = l->max_priority;
+    }
+  p->priority = max_priority;
+  if (p->waiting_on_lock != NULL)
+    update_lock_priority(p->waiting_on_lock);
+  if (p->donate_to != NULL)
+    update_donation (p->donate_to);
+  /*if (p->priority < max_priority)
+  {
+
+  }
+  
   if (p->priority < priority)
   {
     p->priority = priority;
     if (p->donate_to != NULL)
       update_donation(p->donate_to, priority);
-  }
-//  intr_set_level(old_level);
+  }*/
+//    if (p->donate_to != NULL)
+//      update_donation(p->donate_to, priority);
+  intr_set_level(old_level);
 }
 
 /** Restore to the original priority. Always yield CPU at sema_up. */
@@ -407,6 +436,11 @@ restore_donation ()
     }
 
   thread_current ()->priority = max_priority;
+  if (thread_current ()->waiting_on_lock != NULL)
+  {
+    update_lock_priority(thread_current ()->waiting_on_lock);
+    update_donation(thread_current ()->waiting_on_lock->holder);
+  }
 
   if (!list_empty(&ready_list))
     list_sort(&ready_list, priority_larger, NULL);
@@ -545,6 +579,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->magic = THREAD_MAGIC;
   list_init(&t->locks_held);
+  t->waiting_on_lock = NULL;
   if (!thread_mlfqs)
   {
     t->priority = priority;
