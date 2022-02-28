@@ -68,7 +68,6 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      //list_push_back (&sema->waiters, &thread_current ()->elem);
       list_insert_ordered(&sema->waiters, &thread_current() -> elem, priority_larger, NULL);
       ASSERT (list_front(&sema -> waiters) != NULL);
       thread_block ();
@@ -210,15 +209,11 @@ lock_acquire (struct lock *lock)
     if (thread_get_priority () > lock->max_priority)
       lock->max_priority = thread_get_priority ();
     thread_current ()->waiting_on_lock = lock;
-    // donation happens here
     donate_to_thread(lock->holder);
     sema_down(&lock->semaphore);
     thread_current ()->waiting_on_lock = NULL;
     lock->holder = thread_current ();
   }
-
-//  sema_down (&lock->semaphore);
-//  lock->holder = thread_current ();
 }
 
 /** Tries to acquires LOCK and returns true if successful or false
@@ -344,7 +339,6 @@ cond_wait (struct condition *cond, struct lock *lock)
   
   waiter.priority = thread_current()->priority;
   sema_init (&waiter.semaphore, 0);
-  //list_push_back (&cond->waiters, &waiter.elem);
   list_insert_ordered(&cond->waiters, &waiter.elem, waiter_priority_larger, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
@@ -368,7 +362,6 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)) 
   {
-//    printf("%d", list_entry(list_front(&cond -> waiters), struct semaphore_elem, elem).)
     sema_up (&list_entry (list_pop_front (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
     thread_yield();
@@ -398,5 +391,4 @@ waiter_priority_larger (const struct list_elem *a, const struct list_elem *b, vo
   const struct semaphore_elem *pa = list_entry(a, struct semaphore_elem, elem);
   const struct semaphore_elem *pb = list_entry(b, struct semaphore_elem, elem);
   return pa->priority > pb->priority;
-//  return list_entry(list_begin(&(pa -> semaphore).waiters), struct thread, elem) -> priority > list_entry(list_begin(&(pb -> semaphore).waiters), struct thread, elem) -> priority;
 }

@@ -315,7 +315,6 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) 
     list_insert_ordered (&ready_list, &(cur -> elem), priority_larger, NULL);
-    //list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -344,14 +343,6 @@ thread_set_priority (int new_priority)
 {
   if (thread_mlfqs)
     return;
-  /*
-  if (thread_get_priority() == thread_get_real_priority())
-  {
-    thread_current ()->priority = new_priority;
-    if (thread_current () -> donate_to != NULL)
-      update_donation (thread_current ()->donate_to, new_priority);
-  }
-  */
   thread_current ()->real_priority = new_priority;
   restore_donation ();
   if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem) -> priority)
@@ -362,28 +353,12 @@ thread_set_priority (int new_priority)
 void 
 donate_to_thread (struct thread *p)
 {
-  thread_current() -> donate_to = p;
-  //bool yield = p->priority < thread_current()->priority;
   enum intr_level old_level = intr_disable ();
   update_donation(p);
   if (!list_empty(&ready_list))
     list_sort(&ready_list, priority_larger, NULL);
-//  {
-//    ASSERT (list_front(&ready_list) != NULL);
-//  }
-  /*for (struct list_elem *e = list_begin (&ready_list); e != list_end (&ready_list);
-       e = list_next (e))
-  {
-    struct thread *t = list_entry (e, struct thread, elem);
-    printf("%d, ", t->priority);
-  }
-  printf("\n");*/
-//printf("%d", p->priority);
   intr_set_level(old_level);
   thread_yield();
-
-  //if (yield)
-  //  thread_yield();
 }
 
 /** Updates the donated priority. */
@@ -401,22 +376,10 @@ update_donation (struct thread *p)
     }
   p->priority = max_priority;
   if (p->waiting_on_lock != NULL)
+  {
     update_lock_priority(p->waiting_on_lock);
-  if (p->donate_to != NULL)
-    update_donation (p->donate_to);
-  /*if (p->priority < max_priority)
-  {
-
+    update_donation (p->waiting_on_lock->holder);
   }
-  
-  if (p->priority < priority)
-  {
-    p->priority = priority;
-    if (p->donate_to != NULL)
-      update_donation(p->donate_to, priority);
-  }*/
-//    if (p->donate_to != NULL)
-//      update_donation(p->donate_to, priority);
   intr_set_level(old_level);
 }
 
