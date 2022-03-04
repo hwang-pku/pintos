@@ -14,4 +14,5 @@ real real_int_mul(real, int);
 real real_int_div(real, int);
 real int_to_real(int);
 real real_to_int(real); // round to the nearest
+real real_to_int_down(real); // round down given a positive number
 #endif

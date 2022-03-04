@@ -41,3 +41,8 @@ real real_to_int(real a) // round to the nearest
 {
     return a >= 0 ? (a + offset / 2) / offset : (a - offset / 2) / offset;
 }
+
+real real_to_int_down(real); // round down given a positive number
+{
+    return a / offset;
+}
