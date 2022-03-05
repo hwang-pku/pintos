@@ -1,4 +1,4 @@
-#include<real.h>
+#include <real.h>
 #include <stdint.h>
 static int offset = (1 << PRECISION);
 real real_add(real a, real b)
@@ -42,7 +42,7 @@ real real_to_int(real a) // round to the nearest
     return a >= 0 ? (a + offset / 2) / offset : (a - offset / 2) / offset;
 }
 
-real real_to_int_down(real); // round down given a positive number
+real real_to_int_down(real a) // round down given a positive number
 {
     return a / offset;
 }

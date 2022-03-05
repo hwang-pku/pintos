@@ -206,10 +206,13 @@ lock_acquire (struct lock *lock)
 
   if(!lock_try_acquire(lock))
   {
-    if (thread_get_priority () > lock->max_priority)
-      lock->max_priority = thread_get_priority ();
-    thread_current ()->waiting_on_lock = lock;
-    donate_to_thread(lock->holder);
+    if (!thread_mlfqs)
+    {
+      if (thread_get_priority () > lock->max_priority)
+        lock->max_priority = thread_get_priority ();
+      thread_current ()->waiting_on_lock = lock;
+      donate_to_thread(lock->holder);
+    }
     sema_down(&lock->semaphore);
     thread_current ()->waiting_on_lock = NULL;
     lock->holder = thread_current ();
@@ -251,13 +254,16 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
-  // remove lock from lock s_held and update donate_to
-  list_remove(&lock->elem);
-  for (struct list_elem *e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
-       e = list_next (e))
-       list_entry(e, struct thread, elem)->donate_to = NULL;
-
-  restore_donation();
+  if (!thread_mlfqs)
+  {
+    // remove lock from lock s_held and update donate_to
+    list_remove(&lock->elem);
+    for (struct list_elem *e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
+        e = list_next (e))
+        list_entry(e, struct thread, elem)->donate_to = NULL;
+  
+    restore_donation();
+  }
   sema_up (&lock->semaphore);
   thread_yield();
 }

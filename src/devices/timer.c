@@ -99,6 +99,7 @@ timer_sleep (int64_t ticks)
 
   intr_disable ();
 
+  //printf("sleep for %d ticks\n", ticks);
   struct thread * cur_thread = thread_current();
   cur_thread->waken_time = start+ticks;
   list_insert_ordered(&sleeping_thread_list, &(cur_thread -> elem), waken_time_less, NULL);
@@ -184,6 +185,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
   ticks++;
   thread_tick ();
 
+  // wake up sleeping threads
   struct thread *pcur_thread = thread_current();
   while(!list_empty(&sleeping_thread_list))
   {
@@ -195,6 +197,22 @@ timer_interrupt (struct intr_frame *args UNUSED)
       intr_yield_on_return();
     list_remove(e);
     thread_unblock(p);
+  }
+  
+  if (thread_mlfqs)
+  {
+    inc_recent_cpu ();
+
+    // When timer reaches a multiple of second
+    if (timer_ticks () % TIMER_FREQ == 0)
+    {
+      update_load_avg ();
+      update_recent_cpu ();
+    }
+
+    // Check all the threads to see if anyone has reached its fourth tick of the round.
+    if (timer_ticks () % 4 == 0)
+      update_priority ();
   }
 }
 

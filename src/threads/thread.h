@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <real.h>
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -94,6 +95,10 @@ struct thread
     struct list locks_held;             /**< The threads that donates to this thread . */
     struct list_elem allelem;           /**< List element for all threads list. */
 
+    int64_t born_time;                  /**< ticks when this thread is created. */
+    int nice;                           /**< Niceness of this thread. */
+    real recent_cpu;                    /**< Recent cpu usage of this thread. */
+
     /* shared between thread.c and timer.c */
     int64_t waken_time; 
 
@@ -140,6 +145,12 @@ void thread_foreach (thread_action_func *, void *);
 int thread_get_priority (void);
 void thread_set_priority (int);
 int thread_get_real_priority (void);
+
+/** performs automatic update for mlfqs. */
+void thread_update_priority (struct thread *);
+void update_load_avg (void);
+void inc_recent_cpu (void);
+void update_recent_cpu (void);
 
 void donate_to_thread (struct thread *);
 void update_donation (struct thread *);
