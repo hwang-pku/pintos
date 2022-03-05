@@ -68,13 +68,11 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_insert_ordered(&sema->waiters, &thread_current() -> elem, priority_larger, NULL);
-      ASSERT (list_front(&sema -> waiters) != NULL);
+      list_insert_ordered(&sema->waiters, 
+        &thread_current() -> elem, priority_larger, NULL);
       thread_block ();
     }
   sema->value--;
-  if (!list_empty(&sema->waiters))
-    ASSERT (list_front(&sema -> waiters) != NULL);
   intr_set_level (old_level);
 }
 
@@ -206,12 +204,13 @@ lock_acquire (struct lock *lock)
 
   if(!lock_try_acquire(lock))
   {
+    /* Lock is held by another thread */
     if (!thread_mlfqs)
     {
+      /* Update the max_priority of the lock. */
       if (thread_get_priority () > lock->max_priority)
         lock->max_priority = thread_get_priority ();
       thread_current ()->waiting_on_lock = lock;
-      //donate_to_thread(lock->holder);
       thread_update_donation (lock->holder);
     }
     sema_down(&lock->semaphore);
@@ -257,17 +256,12 @@ lock_release (struct lock *lock)
   lock->holder = NULL;
   if (!thread_mlfqs)
   {
-    // remove lock from lock s_held and update donate_to
+    /* remove lock from locks_held of the current thread */
     list_remove(&lock->elem);
-    for (struct list_elem *e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
-        e = list_next (e))
-        list_entry(e, struct thread, elem)->donate_to = NULL;
-  
+
     thread_update_donation (thread_current ());
-    //restore_donation();
   }
   sema_up (&lock->semaphore);
-  thread_yield();
 }
 
 /** Returns true if the current thread holds LOCK, false
@@ -281,19 +275,14 @@ lock_held_by_current_thread (const struct lock *lock)
   return lock->holder == thread_current ();
 }
 
+/** Update the max_priority of a given lock. */
 void
 update_lock_priority (struct lock *l)
 {
-  struct list_elem *e;
-  int max_priority = PRI_MIN;
-  for (e = list_begin (&l->semaphore.waiters); e != list_end (&l->semaphore.waiters);
-        e = list_next (e))
-    {
-      struct thread *t = list_entry (e, struct thread, elem);
-      if (max_priority < t->priority)
-        max_priority = t->priority;
-    }
-  l->max_priority = max_priority;
+  /* Get the maximum priority among the waiters. */
+  struct list_elem *e = list_max(&l->semaphore.waiters, 
+                                 max_priority_less, NULL);
+  l->max_priority = list_entry (e, struct thread, elem) -> priority;
 }
 
 /** One semaphore in a list. */
@@ -347,7 +336,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   
   waiter.priority = thread_current()->priority;
   sema_init (&waiter.semaphore, 0);
-  list_insert_ordered(&cond->waiters, &waiter.elem, waiter_priority_larger, NULL);
+  list_insert_ordered(&cond->waiters,
+    &waiter.elem, waiter_priority_larger, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -394,16 +384,20 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
 /** Compares the priority between two waiters */
 bool
-waiter_priority_larger (const struct list_elem *a, const struct list_elem *b, void *aux)
+waiter_priority_larger (const struct list_elem *a, 
+                        const struct list_elem *b, void * aux UNUSED)
 {
-  const struct semaphore_elem *pa = list_entry(a, struct semaphore_elem, elem);
-  const struct semaphore_elem *pb = list_entry(b, struct semaphore_elem, elem);
+  const struct semaphore_elem *pa = 
+    list_entry(a, struct semaphore_elem, elem);
+  const struct semaphore_elem *pb = 
+    list_entry(b, struct semaphore_elem, elem);
   return pa->priority > pb->priority;
 }
 
 /** Compares the max_priority between two locks. */
 bool
-max_priority_less (const struct list_elem *a, const struct list_elem *b, void *aux)
+max_priority_less (const struct list_elem *a,
+                   const struct list_elem *b, void *aux UNUSED)
 {
   const struct lock *pa = list_entry(a, struct lock, elem);
   const struct lock *pb = list_entry(b, struct lock, elem);

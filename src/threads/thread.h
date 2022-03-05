@@ -89,14 +89,17 @@ struct thread
     char name[16];                      /**< Name (for debugging purposes). */
     uint8_t *stack;                     /**< Saved stack pointer. */
     int priority;                       /**< Priority. */
-    int real_priority;                  /**< Actual priority. */
-    struct thread *donate_to;           /**< The thread that this thread donates to. */
-    struct lock *waiting_on_lock;       /**< The lock this thread is waiting on. */
-    struct list locks_held;             /**< The threads that donates to this thread . */
-    struct list_elem allelem;           /**< List element for all threads list. */
+    int real_priority;                  /**< Priority without donation. */
+
+   /**< The lock this thread is waiting on. */
+    struct lock *waiting_on_lock;       
+    struct list locks_held;             /**< The locks this thread holds. */
+
+   /**< List element for all threads list. */
+    struct list_elem allelem;           
 
     int nice;                           /**< Niceness of this thread. */
-    real recent_cpu;                    /**< Recent cpu usage of this thread. */
+    real recent_cpu;                    /**< CPU usage of this thread. */
 
     /* shared between thread.c and timer.c */
     int64_t waken_time; 
@@ -146,7 +149,7 @@ void thread_set_priority (int);
 int thread_get_real_priority (void);
 
 /** performs automatic update for mlfqs. */
-void thread_update_priority (struct thread *);
+void update_priority (void);
 void update_load_avg (void);
 void inc_recent_cpu (void);
 void update_recent_cpu (void);
@@ -159,7 +162,9 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
-bool waken_time_less (const struct list_elem *, const struct list_elem *, void *);
-bool priority_larger (const struct list_elem *, const struct list_elem *, void *);
+bool waken_time_less (const struct list_elem *, 
+                      const struct list_elem *, void *);
+bool priority_larger (const struct list_elem *, 
+                      const struct list_elem *, void *);
 
 #endif /**< threads/thread.h */
