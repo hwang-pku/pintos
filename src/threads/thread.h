@@ -95,7 +95,6 @@ struct thread
     struct list locks_held;             /**< The threads that donates to this thread . */
     struct list_elem allelem;           /**< List element for all threads list. */
 
-    int64_t born_time;                  /**< ticks when this thread is created. */
     int nice;                           /**< Niceness of this thread. */
     real recent_cpu;                    /**< Recent cpu usage of this thread. */
 
@@ -152,9 +151,8 @@ void update_load_avg (void);
 void inc_recent_cpu (void);
 void update_recent_cpu (void);
 
-void donate_to_thread (struct thread *);
-void update_donation (struct thread *);
-void restore_donation ();
+/* update donation for thread. */
+void thread_update_donation (struct thread *);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

@@ -76,6 +76,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static void chain_update_donation (struct thread *);
 
 /** Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -249,9 +250,8 @@ thread_unblock (struct thread *t)
 
   ASSERT (is_thread (t));
 
-  old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  //list_push_back (&ready_list, &t->elem);
+  old_level = intr_disable ();
   list_insert_ordered (&ready_list, &(t -> elem), priority_larger, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
@@ -353,70 +353,39 @@ thread_set_priority (int new_priority)
   if (thread_mlfqs)
     return;
   thread_current ()->real_priority = new_priority;
-  restore_donation ();
+  thread_update_donation (thread_current ());
   if (!list_empty(&ready_list) && thread_get_priority() < list_entry(list_front(&ready_list), struct thread, elem) -> priority)
     thread_yield();
 }
 
 /** Donates to another thread. */
 void 
-donate_to_thread (struct thread *p)
+thread_update_donation (struct thread *p)
 {
+  // Update the donated thread's priority (chain)
+  chain_update_donation(p);
+
   enum intr_level old_level = intr_disable ();
-  update_donation(p);
   if (!list_empty(&ready_list))
     list_sort(&ready_list, priority_larger, NULL);
   intr_set_level(old_level);
-  thread_yield();
 }
 
-/** Updates the donated priority. */
-void
-update_donation (struct thread *p)
+/** Updates the donated priority (chain). */
+static void
+chain_update_donation (struct thread *p)
 {
-  enum intr_level old_level = intr_disable();
-  int max_priority = p->real_priority;
-  for (struct list_elem *e = list_begin (&p->locks_held); e != list_end (&p->locks_held);
-       e = list_next (e))
-    {
-      struct lock *l = list_entry (e, struct lock, elem);
-      if (max_priority < l->max_priority)
-        max_priority = l->max_priority;
-    }
+  struct list_elem *e = list_max (&p->locks_held, max_priority_less, NULL);
+  int max_priority = list_entry(e, struct lock, elem)->max_priority;
+  if (p->real_priority > max_priority)
+    max_priority = p->real_priority;
+    
   p->priority = max_priority;
   if (p->waiting_on_lock != NULL)
   {
     update_lock_priority(p->waiting_on_lock);
-    update_donation (p->waiting_on_lock->holder);
+    chain_update_donation (p->waiting_on_lock->holder);
   }
-  intr_set_level(old_level);
-}
-
-/** Restore to the original priority. Always yield CPU at sema_up. */
-void
-restore_donation ()
-{
-  enum intr_level old_level = intr_disable();
-
-  int max_priority = thread_get_real_priority();
-  for (struct list_elem *e = list_begin (&thread_current ()->locks_held); e != list_end (&thread_current ()->locks_held);
-       e = list_next (e))
-    {
-      struct lock *l = list_entry (e, struct lock, elem);
-      if (max_priority < l->max_priority)
-        max_priority = l->max_priority;
-    }
-
-  thread_current ()->priority = max_priority;
-  if (thread_current ()->waiting_on_lock != NULL)
-  {
-    update_lock_priority(thread_current ()->waiting_on_lock);
-    update_donation(thread_current ()->waiting_on_lock->holder);
-  }
-
-  if (!list_empty(&ready_list))
-    list_sort(&ready_list, priority_larger, NULL);
-  intr_set_level(old_level);
 }
 
 /** Returns the number of ready threads. */
@@ -666,7 +635,6 @@ init_thread (struct thread *t, const char *name, int priority)
 
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
-  //list_insert_ordered (&all_list, &(t -> allelem), priority_larger, NULL);
   intr_set_level (old_level);
 }
 
@@ -784,7 +752,7 @@ allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
-/** Compares the waken_time between two threads */
+/** Compares the waken_time between two threads. */
 bool
 waken_time_less (const struct list_elem *a, const struct list_elem *b, void *aux)
 {
@@ -793,7 +761,7 @@ waken_time_less (const struct list_elem *a, const struct list_elem *b, void *aux
   return pa -> waken_time < pb -> waken_time;
 }
 
-/** Compares the priority between two threads */
+/** Compares the priority between two threads. */
 bool
 priority_larger (const struct list_elem *a, const struct list_elem *b, void *aux)
 {

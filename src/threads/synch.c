@@ -211,7 +211,8 @@ lock_acquire (struct lock *lock)
       if (thread_get_priority () > lock->max_priority)
         lock->max_priority = thread_get_priority ();
       thread_current ()->waiting_on_lock = lock;
-      donate_to_thread(lock->holder);
+      //donate_to_thread(lock->holder);
+      thread_update_donation (lock->holder);
     }
     sema_down(&lock->semaphore);
     thread_current ()->waiting_on_lock = NULL;
@@ -262,7 +263,8 @@ lock_release (struct lock *lock)
         e = list_next (e))
         list_entry(e, struct thread, elem)->donate_to = NULL;
   
-    restore_donation();
+    thread_update_donation (thread_current ());
+    //restore_donation();
   }
   sema_up (&lock->semaphore);
   thread_yield();
@@ -397,4 +399,13 @@ waiter_priority_larger (const struct list_elem *a, const struct list_elem *b, vo
   const struct semaphore_elem *pa = list_entry(a, struct semaphore_elem, elem);
   const struct semaphore_elem *pb = list_entry(b, struct semaphore_elem, elem);
   return pa->priority > pb->priority;
+}
+
+/** Compares the max_priority between two locks. */
+bool
+max_priority_less (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  const struct lock *pa = list_entry(a, struct lock, elem);
+  const struct lock *pb = list_entry(b, struct lock, elem);
+  return pa -> max_priority < pb -> max_priority;
 }
