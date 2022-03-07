@@ -293,7 +293,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /**< List element. */
     struct semaphore semaphore;         /**< This semaphore. */
-    struct thread *t;                   /**< The thread this semaphore
+    struct thread *thread_waiting;                   /**< The thread this semaphore
                                              refers to. */
   };
 
@@ -338,7 +338,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (lock_held_by_current_thread (lock));
   
-  waiter.t = thread_current ();
+  waiter.thread_waiting = thread_current ();
   sema_init (&waiter.semaphore, 0);
   list_push_back(&cond->waiters, &waiter.elem);
 
@@ -405,5 +405,5 @@ waiter_priority_less (const struct list_elem *a,
 {
   const struct semaphore_elem *pa = list_entry(a, struct semaphore_elem, elem);
   const struct semaphore_elem *pb = list_entry(b, struct semaphore_elem, elem);
-  return pa -> t -> priority < pb -> t -> priority;
+  return pa -> thread_waiting -> priority < pb -> thread_waiting -> priority;
 }
