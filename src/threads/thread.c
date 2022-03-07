@@ -367,10 +367,10 @@ thread_set_priority (int new_priority)
 void 
 thread_update_donation (struct thread *p)
 {
+  enum intr_level old_level = intr_disable ();
   // Update the donated thread's priority (chain)
   chain_update_donation(p);
 
-  enum intr_level old_level = intr_disable ();
   if (!list_empty(&ready_list))
     list_sort(&ready_list, priority_larger, NULL);
   intr_set_level(old_level);
@@ -503,6 +503,7 @@ void
 thread_set_nice (int nice) 
 {
   ASSERT (thread_mlfqs);
+  ASSERT (NICE_MIN <= nice && nice <= NICE_MAX);
   struct thread *cur = thread_current ();
   cur->nice = nice;
   thread_update_priority (cur, NULL);
@@ -779,4 +780,14 @@ priority_larger (const struct list_elem *a,
   const struct thread *pa = list_entry(a, struct thread, elem);
   const struct thread *pb = list_entry(b, struct thread, elem);
   return pa -> priority > pb -> priority;
+}
+
+/** Compares the priority between two threads. */
+bool
+priority_less (const struct list_elem *a, 
+                 const struct list_elem *b, void *aux UNUSED)
+{
+  const struct thread *pa = list_entry(a, struct thread, elem);
+  const struct thread *pb = list_entry(b, struct thread, elem);
+  return pa -> priority < pb -> priority;
 }

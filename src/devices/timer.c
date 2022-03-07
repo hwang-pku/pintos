@@ -99,11 +99,10 @@ timer_sleep (int64_t ticks)
 
   intr_disable ();
 
-  //printf("sleep for %d ticks\n", ticks);
-  struct thread * cur_thread = thread_current();
-  cur_thread->waken_time = start+ticks;
+  struct thread * cur = thread_current();
+  cur->waken_time = start+ticks;
   list_insert_ordered(&sleeping_thread_list, 
-                      &(cur_thread -> elem), waken_time_less, NULL);
+                      &(cur->elem), waken_time_less, NULL);
   thread_block();
   
   intr_set_level (INTR_ON);
