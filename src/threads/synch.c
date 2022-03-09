@@ -241,6 +241,8 @@ lock_try_acquire (struct lock *lock)
   {
     lock->holder = thread_current ();
     list_push_back(&thread_current ()->locks_held, &lock->elem);
+    if (!thread_mlfqs)
+      thread_update_donation (thread_current ());
   }
   return success;
 }
@@ -261,10 +263,12 @@ lock_release (struct lock *lock)
   {
     /* remove lock from locks_held of the current thread */
     list_remove(&lock->elem);
-
-    thread_update_donation (thread_current ());
+    if (!thread_mlfqs)
+      thread_update_donation (thread_current ());
   }
   sema_up (&lock->semaphore);
+  if (!thread_mlfqs)
+    update_lock_priority (lock);
 }
 
 /** Returns true if the current thread holds LOCK, false
@@ -293,7 +297,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /**< List element. */
     struct semaphore semaphore;         /**< This semaphore. */
-    struct thread *thread_waiting;                   /**< The thread this semaphore
+    struct thread *thread_waiting;      /**< The thread this semaphore
                                              refers to. */
   };
 
