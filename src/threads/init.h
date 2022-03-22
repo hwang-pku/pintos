@@ -8,5 +8,6 @@
 
 /** Page directory with kernel mappings only. */
 extern uint32_t *init_page_dir;
+bool pintos_booted;
 
 #endif /**< threads/init.h */

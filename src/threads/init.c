@@ -77,6 +77,7 @@ int
 pintos_init (void)
 {
   char **argv;
+  pintos_booted = false;
 
   /* Clear BSS. */  
   bss_init ();
@@ -350,6 +351,7 @@ parse_options (char **argv)
 static void
 run_task (char **argv)
 {
+  pintos_booted = true;
   const char *task = argv[1];
   
   printf ("Executing '%s':\n", task);

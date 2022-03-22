@@ -25,7 +25,7 @@
    PROVIDE MAINTENANCE, SUPPORT, UPDATES, ENHANCEMENTS, OR
    MODIFICATIONS.
 */
-
+#include "threads/init.h"
 #include "threads/synch.h"
 #include <stdio.h>
 #include <string.h>
@@ -125,7 +125,8 @@ sema_up (struct semaphore *sema)
   }
   sema->value++;
   intr_set_level (old_level);
-  thread_yield();
+  if (pintos_booted && !intr_context ())
+    thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
