@@ -50,16 +50,51 @@ process_execute (const char *file_name)
 static void
 start_process (void *file_name_)
 {
-  char *file_name = file_name_;
+  char *file_name = file_name_, *save_ptr;
   struct intr_frame if_;
   bool success;
 
+  file_name = strtok_r(file_name, " ", &save_ptr);
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+  if (success)
+  {
+    /* first push all the parameters argv onto the stack */
+    int argc = 0;
+    static char *argv[128];
+    for (char *token = file_name; token != NULL;
+        token = strtok_r (NULL, " ", &save_ptr))
+    {
+      size_t str_size = strlen(token)+1;
+      if_.esp -= str_size;
+      strlcpy((char *)if_.esp, token, str_size);
+      argv[argc++] = if_.esp;
+    }
+
+    /* add NULL at the end of argv */
+    argv[argc] = NULL;
+    
+    /* do word-align */
+    if_.esp -= (unsigned int)if_.esp % 4;
+
+    /* push argv[] onto stack */
+    for (int i = argc; i >= 0; i--)
+    {
+      if_.esp -= 4;
+      *((char **)if_.esp) = argv[i];
+    }
+    
+    /* push argv, argc, and RET onto stack */
+    if_.esp -= 12;
+    *(char ***)(if_.esp+8) = if_.esp+12;
+    *(int *)(if_.esp+4) = argc;
+    *(void **)if_.esp = NULL;
+  }
+
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -103,6 +138,7 @@ process_exit (void)
   pd = cur->pagedir;
   if (pd != NULL) 
     {
+      printf("%s: exit(%d)\n", cur->name, cur->status);
       /* Correct ordering here is crucial.  We must set
          cur->pagedir to NULL before switching page directories,
          so that a timer interrupt can't switch back to the
@@ -208,6 +244,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
 {
+//  while(!thread_safe){}
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
