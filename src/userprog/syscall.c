@@ -3,8 +3,10 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 static void syscall_handler (struct intr_frame *);
+static void check_ptr_validity (const void *);
 
 void
 syscall_init (void) 
@@ -17,4 +19,13 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   printf ("system call!\n");
   thread_exit ();
+}
+
+static void 
+check_ptr_validity (const void *ptr)
+{
+  if (ptr != NULL && is_user_vaddr (ptr) && ptr < PHYS_BASE)
+    return;
+  exit(-1);
+  NOT_REACHED();
 }
