@@ -373,7 +373,8 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
                                    waiter_priority_less, NULL);
     list_remove (e);
     sema_up (&list_entry (e, struct semaphore_elem, elem)->semaphore);
-    thread_yield();
+    if (pintos_booted)
+      thread_yield();
   }  
 }
 
