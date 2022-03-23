@@ -114,6 +114,7 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
+    struct process *process;            /**< Corresponding Process. */
 #endif
 
     /* Owned by thread.c. */

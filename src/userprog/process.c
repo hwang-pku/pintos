@@ -20,6 +20,14 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static struct list all_list;
+
+/** Sets up process system. */
+void
+process_init (void)
+{
+  list_init (&all_list);
+}
 
 /** Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -28,7 +36,7 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+  char *fn_copy, *save_ptr;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
@@ -39,7 +47,8 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (strtok_r (file_name, " ", &save_ptr), 
+                       PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -61,6 +70,8 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+
+  /* Argument Passing */
   if (success)
   {
     /* first push all the parameters argv onto the stack */
@@ -90,9 +101,9 @@ start_process (void *file_name_)
     
     /* push argv, argc, and RET onto stack */
     if_.esp -= 12;
-    *(char ***)(if_.esp+8) = if_.esp+12;
+    *(void **)(if_.esp+8) = if_.esp+12;
     *(int *)(if_.esp+4) = argc;
-    *(void **)if_.esp = NULL;
+    *(void **)(if_.esp) = NULL;
   }
 
 
@@ -111,6 +122,24 @@ start_process (void *file_name_)
   NOT_REACHED ();
 }
 
+/** Create a struct process saving the process-related information. 
+ * This function is only called within thread_create.
+*/
+struct process*
+process_create (void)
+{
+  struct process *p;
+  p = palloc_get_page (PAL_ZERO);
+  if (p == NULL)
+    return NULL;
+
+  list_init (&p->childs);
+  sema_init (&p->wait_for_process, 0);
+  list_push_back (&all_list, &p->all_elem);
+
+  return p;  
+}
+
 /** Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If TID is invalid or if it was not a
@@ -121,9 +150,29 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  enum intr_level e = intr_disable ();
+  struct process *p;
+  for (struct list_elem *e = list_begin (&all_list); 
+        e != list_end (&all_list); e = list_next (e))
+  {
+    p = list_entry (e, struct process, all_elem);
+    if (p->thread->tid == child_tid)
+      break;
+  }
+
+  if (p->thread->tid != child_tid)
+    return -1;
+  if (p->father_thread != thread_current ())
+    return -1;
+  if (!list_empty(&p->wait_for_process.waiters))
+    return -1;
+  intr_set_level (e);
+
+  sema_down (&p->wait_for_process);
+  
+  return p->exit_status;
 }
 
 /** Free the current process's resources. */
@@ -131,7 +180,10 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  struct process *pcur = cur->process;
   uint32_t *pd;
+  
+  list_remove (&pcur->all_elem);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -150,6 +202,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  sema_up (&pcur->wait_for_process);
 }
 
 /** Sets up the CPU for running user code in the current
@@ -244,7 +298,6 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (const char *file_name, void (**eip) (void), void **esp) 
 {
-//  while(!thread_safe){}
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;

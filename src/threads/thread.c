@@ -210,6 +210,17 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  #ifdef USERPROG
+  struct process *p = process_create ();
+  if (p == NULL)
+    return TID_ERROR;
+  t->process = p;
+  p->thread = t;
+  p->father_thread = thread_current ();
+  if (thread_current ()->process != NULL)
+    list_push_back(&thread_current ()->process->childs, &t->elem);
+  #endif
+
   intr_set_level(old_level);
 
   /* Add to run queue. */
