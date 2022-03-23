@@ -31,4 +31,7 @@ enum
     SYS_INUMBER                 /**< Returns the inode number for a fd. */
   };
 
+/** Numbers of parameters for each syscall */
+const int param_num[13] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1};
+
 #endif /**< lib/syscall-nr.h */
