@@ -8,11 +8,14 @@
 #include "threads/vaddr.h"
 #include "devices/shutdown.h"
 #include "devices/input.h"
+#include "userprog/pagedir.h"
+#include "filesys/filesys.h"
 
 int syscall_param_num[13] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1};
 
 static void syscall_handler (struct intr_frame *);
 static void check_ptr_validity (const void *);
+static void check_mem_validity (const void *ptr, size_t size);
 static void halt (void);
 static void exit (int status);
 static pid_t exec (const char *cmd_line);
@@ -26,7 +29,6 @@ static int write (int fd, const void *buffer, unsigned size);
 static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
-static void check_mem_validity (const void *ptr, size_t size);
 
 void
 syscall_init (void) 
@@ -37,12 +39,49 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  check_ptr_validity (f->esp);
+  check_mem_validity (f->esp, 4);
   int syscall_num = *(int*)f->esp;
+
+  int param_num = syscall_param_num[syscall_num];
+  check_mem_validity (f->esp, (param_num + 1) * 4);
+
+  void *args[3];
+  for (int i=1; i<=param_num; i++)
+    args[i-1] = f->esp + i * 4;
+  
+  switch (syscall_num)
+  {
+    case SYS_HALT: halt (); //NOT_REACHED ();
+    case SYS_EXIT: exit (*(int*)args[0]); //NOT_REACHED ();
+    case SYS_EXEC: 
+      f->eax = exec (*(const char**)args[0]);
+      break;
+    case SYS_WAIT: 
+      f->eax = wait (*(pid_t*)args[0]);
+      break;
+    case SYS_CREATE: 
+      f->eax = create (*(const char**)args[0], *(unsigned*)args[1]);
+      break;
+    case SYS_REMOVE: f->eax = remove (*(const char**)args[0]); break;
+    case SYS_OPEN: f->eax = open (*(const char**)args[0]); break;
+    case SYS_FILESIZE: f->eax = filesize (*(int*)args[0]); break;
+    case SYS_READ: 
+      f->eax = read (*(int*)args[0], *(void**)args[1], *(unsigned*)args[2]);
+      break;
+    case SYS_WRITE:
+      f->eax = write (*(int*)args[0], *(void**)args[1], *(unsigned*)args[2]);
+      break;
+    case SYS_SEEK: seek (*(int*)args[0], *(unsigned*)args[1]); break;
+    case SYS_TELL: f->eax = tell (*(int*)args[0]); break;
+    case SYS_CLOSE: close (*(int*)args[0]); break;
+    default: NOT_REACHED ();
+  }
+  /*
   if (syscall_num == SYS_WRITE)
     write(*(int*)(f->esp+4), *(void **)(f->esp+8), *(unsigned*)(f->esp+12));
   else if (syscall_num == SYS_EXIT)
     exit(*(int*)(f->esp+4));
+    */
 }
 
 /** Halt the system by calling shutdown_power_off. */
@@ -61,6 +100,14 @@ exit (int status)
   p->exit_status = status;
   thread_exit ();
   NOT_REACHED ();
+}
+
+/** Creates a file with given file name. */
+static bool
+create (const char *file, unsigned initial_size)
+{
+  check_mem_validity (file, sizeof (const char*));
+  return filesys_create (file, initial_size);
 }
 
 /** Reads from a file descriptor. */
@@ -86,17 +133,25 @@ write (int fd, const void *buffer, unsigned size)
 static void
 check_mem_validity (const void *ptr, size_t size)
 {
-  check_ptr_validity (ptr);
-  check_ptr_validity (ptr+size);
   for (int i=0; i*PGSIZE <= size; i++)
     check_ptr_validity (ptr + i*PGSIZE);
+  check_ptr_validity (ptr + size*sizeof(void *));
 }
 
 static void 
 check_ptr_validity (const void *ptr)
 {
-  if (ptr != NULL && is_user_vaddr (ptr) && ptr < PHYS_BASE)
+  if (ptr != NULL && is_user_vaddr (ptr) && pagedir_get_page (thread_current ()->pagedir, ptr) != NULL)
     return;
   exit(-1);
   NOT_REACHED ();
 }
+
+static pid_t exec (const char *cmd_line) {}
+static int wait (pid_t pid) {}
+static bool remove (const char *file) {}
+static int open (const char *file) {}
+static int filesize (int fd) {}
+static void seek (int fd, unsigned position) {}
+static unsigned tell (int fd) {}
+static void close (int fd) {}
