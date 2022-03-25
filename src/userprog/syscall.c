@@ -1,21 +1,28 @@
 #include "userprog/process.h"
 #include "userprog/syscall.h"
 #include <stdio.h>
-#include <kernel/stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
+#include <kernel/stdio.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/palloc.h"
 #include "devices/shutdown.h"
 #include "devices/input.h"
 #include "userprog/pagedir.h"
 #include "filesys/filesys.h"
+#include "filesys/file.h"
+
+#define MAX_FD 63
+#define FD_ERROR -1
 
 int syscall_param_num[13] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1};
+//static struct lock file_lock;
 
 static void syscall_handler (struct intr_frame *);
-static void check_ptr_validity (const void *);
-static void check_mem_validity (const void *ptr, size_t size);
+
 static void halt (void);
 static void exit (int status);
 static pid_t exec (const char *cmd_line);
@@ -30,11 +37,19 @@ static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
 
+static void find_next_fd (void);
+static void check_fd_validity (int);
+static void check_ptr_validity (const void *);
+static void check_mem_validity (const void *, size_t);
+static void check_str_validity (const char *);
+
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  //lock_init (&file_lock);
 }
+
 
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
@@ -102,22 +117,100 @@ exit (int status)
   NOT_REACHED ();
 }
 
-/** Creates a file with given file name. */
+/** Runs the executable whose name is given in cmd_line, passing any given arguments, 
+ *  and returns the new process's program id (pid). 
+ * 
+ *  If the program cannot load or run for any reason, must return pid -1, 
+ *  which otherwise should not be a valid pid. */
+static pid_t 
+exec (const char *cmd_line) 
+{
+  check_str_validity (cmd_line);
+  pid_t pid = process_execute (cmd_line);
+  struct process *p = get_process_by_pid (pid);
+  sema_down (&p->loading);
+  if (pid == TID_ERROR || !p->load_success) return -1;
+  return pid;
+}
+
+/** Waits for a child process pid and retrieves the child's exit status. */
+static int 
+wait (pid_t pid)
+{
+  return process_wait (pid);
+}
+
+/** Creates a file with the given file name. */
 static bool
 create (const char *file, unsigned initial_size)
 {
   check_mem_validity (file, sizeof (const char*));
-  return filesys_create (file, initial_size);
+  lock_acquire (&file_lock);
+  bool ret = filesys_create (file, initial_size);
+  lock_release (&file_lock);
+  return ret;
 }
 
-/** Reads from a file descriptor. */
+/** Opens a file with the given file name.
+ *  Returns the fd of the opened file, FD_ERROR is something goes wrong. */
+static int 
+open (const char *file) 
+{
+  check_str_validity (file);
+  struct process *cur_process = process_current ();
+
+  lock_acquire (&file_lock);
+  struct file *tmp_f = filesys_open (file);
+  lock_release (&file_lock);
+  if (tmp_f == NULL)
+    return FD_ERROR;
+
+  struct opened_file * f = palloc_get_page (PAL_ZERO);
+  if (f == NULL)
+    return FD_ERROR;
+
+  f->fd = cur_process->min_available_fd;
+  f->file = tmp_f;
+  lock_init (&f->file_lock);
+  list_push_back (&cur_process->opened_files, &f->elem);
+  cur_process->fd_table[cur_process->min_available_fd] = f;
+
+  find_next_fd (); 
+  return f->fd;
+}
+
+/** Reads size bytes from the file open as fd into buffer. 
+ *  Returns the number of bytes actually read (0 at end of file), 
+ *  or -1 if the file could not be read (due to a condition other than end of file). 
+ * 
+ *  Fd 0 reads from the keyboard using input_getc(). */
 static int
 read (int fd, void *buffer, unsigned size)
 {
-  return 0;
+  check_ptr_validity (buffer);
+  if (fd == 0)
+  {
+    int i = 0;
+    for (uint8_t ch = input_getc (); ch != '\r' && i < size; i++, ch = input_getc ())
+      *(uint8_t*)(buffer + i) = ch;
+    return i;
+  }
+
+  check_fd_validity (fd);
+  struct file *f = process_current ()->fd_table[fd]->file;
+  ASSERT (f != NULL);
+
+  lock_acquire (&file_lock);
+  int real_size = file_read (f, buffer, size);
+  lock_release (&file_lock);
+  return real_size;
 }
 
-/* Write to a file descriptor. */
+/** Writes size bytes from buffer to the open file fd. 
+ *  Returns the number of bytes actually written.
+ * 
+ *  Fd 1 writes to the console. 
+ *  Your code to write to the console should write all of buffer in one call to putbuf(). */
 static int
 write (int fd, const void *buffer, unsigned size)
 {
@@ -127,15 +220,34 @@ write (int fd, const void *buffer, unsigned size)
     putbuf ((const char*)buffer, size);
     return size;
   }
-  return -1;
+  check_fd_validity (fd);
+  struct file *f = process_current ()->fd_table[fd]->file;
+  ASSERT (f != NULL);
+
+  lock_acquire (&file_lock);
+  int real_size = file_write (f, buffer, size);
+  lock_release (&file_lock);
+  return real_size;
+}
+
+static void
+find_next_fd (void)
+{
+  struct process *cur_process = process_current ();
+  for (cur_process->min_available_fd++; 
+       cur_process->min_available_fd <= MAX_FD && 
+       cur_process->fd_table[cur_process->min_available_fd] != NULL; 
+       cur_process->min_available_fd ++);
+  if (cur_process->min_available_fd > MAX_FD)
+    exit(-1);
 }
 
 static void
 check_mem_validity (const void *ptr, size_t size)
 {
-  for (int i=0; i*PGSIZE <= size; i++)
+  for (size_t i=0; i*PGSIZE <= size; i++)
     check_ptr_validity (ptr + i*PGSIZE);
-  check_ptr_validity (ptr + size*sizeof(void *));
+  check_ptr_validity (ptr + size);
 }
 
 static void 
@@ -147,11 +259,80 @@ check_ptr_validity (const void *ptr)
   NOT_REACHED ();
 }
 
-static pid_t exec (const char *cmd_line) {}
-static int wait (pid_t pid) {}
-static bool remove (const char *file) {}
-static int open (const char *file) {}
-static int filesize (int fd) {}
-static void seek (int fd, unsigned position) {}
-static unsigned tell (int fd) {}
-static void close (int fd) {}
+static void
+check_str_validity (const char *ptr)
+{
+  check_mem_validity (ptr, sizeof(char));
+  for (int i=0;; i++)
+  {
+    check_mem_validity (ptr + i, sizeof(char));
+    if (*(ptr + i) == '\0')
+      break;
+  }
+}
+
+static void
+check_fd_validity (int fd)
+{
+  if (fd < 0 || fd > MAX_FD || process_current ()->fd_table[fd] == NULL) 
+    exit(-1);
+}
+
+static bool 
+remove (const char *file) 
+{
+  check_str_validity (file);
+  lock_acquire (&file_lock);
+  bool ret = filesys_remove (file);
+  lock_release (&file_lock);
+  return ret;
+}
+
+static int 
+filesize (int fd)
+{
+  struct process *cur_process = process_current ();
+  if (cur_process->fd_table[fd] == NULL)
+    return -1;
+  lock_acquire (&file_lock);
+  int fz = file_length(cur_process->fd_table[fd]->file);
+  lock_release (&file_lock);
+  return fz;
+}
+
+static void 
+seek (int fd, unsigned position) 
+{
+  check_fd_validity (fd);
+  lock_acquire (&file_lock);
+  file_seek (process_current ()->fd_table[fd]->file, position);
+  lock_release (&file_lock);
+}
+
+static unsigned 
+tell (int fd) 
+{
+  check_fd_validity (fd);
+  lock_acquire (&file_lock);
+  unsigned ret = file_tell(process_current ()->fd_table[fd]->file);
+  lock_release (&file_lock);
+  return ret;
+}
+
+static void 
+close (int fd) 
+{
+  check_fd_validity (fd);
+  struct process *cur_process = process_current ();
+  struct opened_file *f = cur_process->fd_table[fd];
+
+  if (cur_process->min_available_fd > fd)
+    cur_process->min_available_fd = fd;
+  cur_process->fd_table[fd] = NULL;
+  list_remove (&f->elem);
+
+  lock_acquire (&file_lock);
+  file_close (f->file);
+  lock_release (&file_lock);
+  palloc_free_page (f);
+}

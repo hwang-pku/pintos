@@ -27,6 +27,7 @@ void
 process_init (void)
 {
   list_init (&all_list);
+  lock_init (&file_lock);
 }
 
 /** Starts a new thread running a user program loaded from
@@ -67,6 +68,7 @@ start_process (void *file_name_)
   char *file_name = file_name_, *save_ptr;
   struct intr_frame if_;
   bool success;
+  struct process *cur_process = thread_current ()->process;
 
   file_name = strtok_r(file_name, " ", &save_ptr);
   /* Initialize interrupt frame and load executable. */
@@ -74,6 +76,7 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
   success = load (file_name, &if_.eip, &if_.esp);
 
   /* Argument Passing */
@@ -110,12 +113,23 @@ start_process (void *file_name_)
     *(int *)(if_.esp+4) = argc;
     *(void **)(if_.esp) = NULL;
   }
+    
+  if (success)
+  {
+    cur_process->executable = filesys_open(file_name);
+    file_deny_write (cur_process->executable);
+  }
 
+  cur_process->load_success = success;
+  sema_up(&cur_process->loading);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
+  {
+    cur_process->exit_status = -1;
     thread_exit ();
+  }
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -139,8 +153,15 @@ process_create (void)
     return NULL;
 
   list_init (&p->childs);
+  list_init (&p->opened_files);
+  p->min_available_fd = 2;
+
+  memset (p->fd_table, NULL, sizeof(p->fd_table));
   sema_init (&p->wait_for_process, 0);
+  sema_init (&p->loading, 0);
+  lock_init (&p->childs_lock);
   list_push_back (&all_list, &p->all_elem);
+  p->running = true;
 
   return p;  
 }
@@ -158,15 +179,10 @@ int
 process_wait (tid_t child_tid) 
 {
   enum intr_level e = intr_disable ();
-  struct process *p;
-  for (struct list_elem *e = list_begin (&all_list); 
-        e != list_end (&all_list); e = list_next (e))
-  {
-    p = list_entry (e, struct process, all_elem);
-    if (p->thread->tid == child_tid)
-      break;
-  }
+  struct process *p = get_process_by_pid(child_tid);
 
+  if (p == NULL || p->thread == NULL)
+    return -1;
   if (p->thread->tid != child_tid)
     return -1;
   if (p->father_thread != thread_current ())
@@ -176,8 +192,12 @@ process_wait (tid_t child_tid)
   intr_set_level (e);
 
   sema_down (&p->wait_for_process);
-  
-  return p->exit_status;
+
+  int ret = p->exit_status;
+  //if (thread_current ()->tid != 1)
+  //  list_remove (&p->elem);
+  //palloc_free_page (p);
+  return ret;
 }
 
 /** Free the current process's resources. */
@@ -207,9 +227,28 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  
+  /* Free the resources occupied by dead childs. */
+  while (!list_empty(&pcur->childs))  
+  {
+    struct list_elem *e = list_front (&pcur->childs);
+    ASSERT (e != NULL);
+    struct process *child = list_entry (e, struct process, elem);
+    if (child->running)
+      process_wait (child->thread->tid);
+    list_remove (e);
+    palloc_free_page (child);
+  }
 
+  if (pcur->load_success)
+  {
+    file_allow_write (pcur->executable);
+    file_close (pcur->executable);
+  }
   sema_up (&pcur->wait_for_process);
+  pcur->running=false;
 }
+
 
 /** Sets up the CPU for running user code in the current
    thread.
@@ -227,6 +266,41 @@ process_activate (void)
   tss_update ();
 }
 
+
+struct process*
+get_process_by_pid (pid_t pid)
+{
+  struct process *cur_process = process_current ();
+  if (cur_process != NULL)
+  {
+    for (struct list_elem *e = list_begin (&cur_process->childs); 
+          e != list_end (&cur_process->childs); e = list_next (e))
+    {
+      struct process *p = list_entry (e, struct process, elem);
+      if (p->pid == pid)
+        return p;
+    }
+  }
+  else
+  {
+    for (struct list_elem *e = list_begin (&all_list); 
+          e != list_end (&all_list); e = list_next (e))
+    {
+      struct process *p = list_entry (e, struct process, all_elem);
+      if (p->pid == pid)
+        return p;
+    }
+  }
+  return NULL;
+}
+
+struct process*
+process_current (void)
+{
+  return thread_current ()->process;
+}
+
+
 /** We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -317,7 +391,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire (&file_lock);
   file = filesys_open (file_name);
+  lock_release (&file_lock);
+
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -558,3 +635,4 @@ install_page (void *upage, void *kpage, bool writable)
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
+
