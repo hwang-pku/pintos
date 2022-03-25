@@ -2,6 +2,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include "userprog/gdt.h"
+#include "userprog/process.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
@@ -78,6 +79,11 @@ kill (struct intr_frame *f)
      the kernel.  Real Unix-like operating systems pass most
      exceptions back to the process via signals, but we don't
      implement them. */
+
+   /* Be sure to return -1 when a page fault happens. */
+   #ifdef USERPROG
+      process_current ()->exit_status = -1;
+   #endif
      
   /* The interrupt frame's code segment value tells us where the
      exception originated. */
