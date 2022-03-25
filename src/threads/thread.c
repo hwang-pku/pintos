@@ -214,11 +214,12 @@ thread_create (const char *name, int priority,
   struct process *p = process_create ();
   if (p == NULL)
     return TID_ERROR;
+  p->pid = tid;
   t->process = p;
   p->thread = t;
   p->father_thread = thread_current ();
-  if (thread_current ()->process != NULL)
-    list_push_back(&thread_current ()->process->childs, &t->elem);
+  if (thread_current ()->tid != 1)
+    list_push_back(&thread_current ()->process->childs, &p->elem);
   #endif
 
   intr_set_level(old_level);
@@ -390,16 +391,20 @@ thread_update_donation (struct thread *p)
 static void
 chain_update_donation (struct thread *p)
 {
-  struct list_elem *e = list_max (&p->locks_held, max_priority_less, NULL);
-  int max_priority = list_entry(e, struct lock, elem)->max_priority;
-  if (p->real_priority > max_priority)
-    max_priority = p->real_priority;
+  int max_priority = p->real_priority;
+  if (!list_empty(&p->locks_held))
+  {
+    struct list_elem *e = list_max (&p->locks_held, max_priority_less, NULL);
+    if (p->real_priority < list_entry(e, struct lock, elem)->max_priority)
+      max_priority = list_entry(e, struct lock, elem)->max_priority;
+  }
     
   p->priority = max_priority;
   if (p->waiting_on_lock != NULL)
   {
     update_lock_priority(p->waiting_on_lock);
-    chain_update_donation (p->waiting_on_lock->holder);
+    if (p->waiting_on_lock->holder != NULL)
+      chain_update_donation (p->waiting_on_lock->holder);
   }
 }
 
