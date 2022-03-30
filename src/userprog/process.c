@@ -186,6 +186,7 @@ process_wait (tid_t child_tid)
   sema_down (&p->wait_for_process);
 
   int ret = p->exit_status;
+  /* Free the child waited once it finished (only wait once). */
   if (thread_current ()->tid != 1)
     list_remove (&p->elem);
   free_process (p);
@@ -200,15 +201,45 @@ process_exit (void)
   struct thread *cur = thread_current ();
   struct process *pcur = cur->process;
   uint32_t *pd;
+
+  printf("%s: exit(%d)\n", cur->name, pcur->exit_status);
   
   list_remove (&pcur->all_elem);
+
+    /* Free the resources occupied by dead childs. */
+  while (!list_empty(&pcur->childs))  
+  {
+    struct list_elem *e = list_front (&pcur->childs);
+    ASSERT (e != NULL);
+    struct process *child = list_entry (e, struct process, elem);
+    list_remove (e);
+    /* If child is still running, let it reap its own resources. */
+    if (child->running)
+      child->free_self = true;
+    /* Else, reap the child. */
+    else
+      free_process (child);
+  }
+
+  /* file_close naturally allows writing to file. */
+  if (pcur->load_success)
+    file_close (pcur->executable);
+
+  /* If set to free_self, reap this process. */
+  if (pcur->free_self)
+    free_process (pcur);
+  else
+  {
+    /* If not, there could be a father process waiting. */
+    pcur->running=false;
+    sema_up (&pcur->wait_for_process);
+  }
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
   if (pd != NULL) 
     {
-      printf("%s: exit(%d)\n", cur->name, pcur->exit_status);
       /* Correct ordering here is crucial.  We must set
          cur->pagedir to NULL before switching page directories,
          so that a timer interrupt can't switch back to the
@@ -220,33 +251,6 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-  
-  /* Free the resources occupied by dead childs. */
-  while (!list_empty(&pcur->childs))  
-  {
-    struct list_elem *e = list_front (&pcur->childs);
-    ASSERT (e != NULL);
-    struct process *child = list_entry (e, struct process, elem);
-    list_remove (e);
-    if (child->running)
-      child->free_self = true;
-    else
-      free_process (child);
-  }
-
-  if (pcur->load_success)
-  {
-    file_allow_write (pcur->executable);
-    file_close (pcur->executable);
-  }
-
-  if (pcur->free_self)
-    free_process (pcur);
-  else
-  {
-    pcur->running=false;
-    sema_up (&pcur->wait_for_process);
-  }
 }
 
 /** Sets up the CPU for running user code in the current
