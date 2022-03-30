@@ -155,7 +155,7 @@ process_create (void)
 
   list_init (&p->childs);
   list_init (&p->opened_files);
-  p->min_available_fd = 2;
+  p->next_fd = 2;
 
   memset (p->fd_table, NULL, sizeof(p->fd_table));
   sema_init (&p->wait_for_process, 0);

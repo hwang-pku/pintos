@@ -23,8 +23,9 @@ struct process {
     struct file *executable;
 
     struct list opened_files;
-    int min_available_fd;
     struct opened_file *fd_table[130];
+    int next_fd;
+    struct opened_file *min_available_fd_before;
 };
 
 void process_init (void);

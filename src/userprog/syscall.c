@@ -37,7 +37,6 @@ static unsigned tell (int fd);
 static void close (int fd);
 
 static struct opened_file* get_opened_file_by_fd (int);
-static void find_next_fd (void);
 static void check_fd_validity (int);
 static void check_ptr_validity (const void *);
 static void check_mem_validity (const void *, size_t);
@@ -88,12 +87,6 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CLOSE: close (*(int*)args[0]); break;
     default: NOT_REACHED ();
   }
-  /*
-  if (syscall_num == SYS_WRITE)
-    write(*(int*)(f->esp+4), *(void **)(f->esp+8), *(unsigned*)(f->esp+12));
-  else if (syscall_num == SYS_EXIT)
-    exit(*(int*)(f->esp+4));
-    */
 }
 
 /** Halt the system by calling shutdown_power_off. */
@@ -166,13 +159,11 @@ open (const char *file)
   if (f == NULL)
     return FD_ERROR;
 
-  f->fd = cur_process->min_available_fd;
+  f->fd = cur_process->next_fd++;
   f->file = tmp_f;
-  lock_init (&f->file_lock);
   list_push_back (&cur_process->opened_files, &f->elem);
-  cur_process->fd_table[cur_process->min_available_fd] = f;
+  cur_process->fd_table[f->fd] = f;
 
-  find_next_fd (); 
   return f->fd;
 }
 
@@ -194,11 +185,12 @@ read (int fd, void *buffer, unsigned size)
   }
 
   check_fd_validity (fd);
-  struct file *f = process_current ()->fd_table[fd]->file;
-  ASSERT (f != NULL);
+  struct opened_file *of = get_opened_file_by_fd (fd);
+  if (of == NULL || of->file == NULL)
+    return -1;
 
   lock_acquire (&file_lock);
-  int real_size = file_read (f, buffer, size);
+  int real_size = file_read (of->file, buffer, size);
   lock_release (&file_lock);
   return real_size;
 }
@@ -218,25 +210,14 @@ write (int fd, const void *buffer, unsigned size)
     return size;
   }
   check_fd_validity (fd);
-  struct file *f = process_current ()->fd_table[fd]->file;
-  ASSERT (f != NULL);
+  struct opened_file *of = get_opened_file_by_fd (fd);
+  if (of == NULL || of->file == NULL)
+    return -1;
 
   lock_acquire (&file_lock);
-  int real_size = file_write (f, buffer, size);
+  int real_size = file_write (of->file, buffer, size);
   lock_release (&file_lock);
   return real_size;
-}
-
-static void
-find_next_fd (void)
-{
-  struct process *cur_process = process_current ();
-  for (cur_process->min_available_fd++; 
-       cur_process->min_available_fd <= MAX_FD && 
-       cur_process->fd_table[cur_process->min_available_fd] != NULL; 
-       cur_process->min_available_fd ++);
-  if (cur_process->min_available_fd > MAX_FD)
-    exit(-1);
 }
 
 static void
@@ -289,10 +270,11 @@ static int
 filesize (int fd)
 {
   struct process *cur_process = process_current ();
-  if (cur_process->fd_table[fd] == NULL)
+  struct opened_file* file= get_opened_file_by_fd (fd);
+  if (file == NULL)
     return -1;
   lock_acquire (&file_lock);
-  int fz = file_length(cur_process->fd_table[fd]->file);
+  int fz = file_length(file->file);
   lock_release (&file_lock);
   return fz;
 }
@@ -302,7 +284,7 @@ seek (int fd, unsigned position)
 {
   check_fd_validity (fd);
   lock_acquire (&file_lock);
-  file_seek (process_current ()->fd_table[fd]->file, position);
+  file_seek (get_opened_file_by_fd (fd)->file, position);
   lock_release (&file_lock);
 }
 
@@ -311,7 +293,7 @@ tell (int fd)
 {
   check_fd_validity (fd);
   lock_acquire (&file_lock);
-  unsigned ret = file_tell(process_current ()->fd_table[fd]->file);
+  unsigned ret = file_tell(get_opened_file_by_fd (fd)->file);
   lock_release (&file_lock);
   return ret;
 }
@@ -321,10 +303,8 @@ close (int fd)
 {
   check_fd_validity (fd);
   struct process *cur_process = process_current ();
-  struct opened_file *f = cur_process->fd_table[fd];
+  struct opened_file *f = get_opened_file_by_fd (fd);
 
-  if (cur_process->min_available_fd > fd)
-    cur_process->min_available_fd = fd;
   cur_process->fd_table[fd] = NULL;
   list_remove (&f->elem);
 
@@ -337,6 +317,8 @@ close (int fd)
 static struct opened_file* 
 get_opened_file_by_fd (int fd)
 {
+  return thread_current ()->process->fd_table[fd];
+  /*
   struct process *cur_process = process_current ();
   for (struct list_elem *e = list_front (&cur_process->opened_files);
        e != list_end (&cur_process->opened_files); e = list_next (e))
@@ -345,5 +327,6 @@ get_opened_file_by_fd (int fd)
         if (f->fd == fd)
           return f;
       }
+    */
   return NULL;
 }
