@@ -8,22 +8,24 @@
 typedef int pid_t;
 
 struct process {
-    int exit_status;
-    bool load_success;
-    bool running;
-    bool free_self;
-    pid_t pid;
-    struct thread *thread;
-    struct semaphore wait_for_process;
-    struct semaphore loading;
-    struct list_elem all_elem;
-    struct list_elem elem;
+    int exit_status;                    /**< Exit status. */
+    bool load_success;                  /**< If load successful. */
+    bool running;                       /**< If still running. */
+    bool free_self;                     /**< If need to free itself. */
+    pid_t pid;                          /**< Process Id. */
 
-    struct list childs;
-    struct file *executable;
+    /** Sema to block the process waiting for this one. */
+    struct semaphore wait_for_process;  
+    struct semaphore loading;           /**< Sema indicate loading. */
+    struct list_elem all_elem;          /**< Elem for all_list */
+    struct list_elem elem;              /**< Elem for child in father. */
 
-    struct list opened_files;
-    int next_fd;
+    struct list childs;                 /**< Child process. */
+    /** The corresponding executable file */
+    struct file *executable;            
+
+    struct list opened_files;           /**< Opened file list. */
+    int next_fd;                        /**< Next fd assigned. */
 };
 
 void process_init (void);

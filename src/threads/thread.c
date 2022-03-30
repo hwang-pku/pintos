@@ -216,7 +216,6 @@ thread_create (const char *name, int priority,
     return TID_ERROR;
   p->pid = tid;
   t->process = p;
-  p->thread = t;
   if (thread_current ()->tid != 1)
     list_push_back(&thread_current ()->process->childs, &p->elem);
   #endif

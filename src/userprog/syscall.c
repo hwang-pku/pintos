@@ -55,17 +55,21 @@ syscall_handler (struct intr_frame *f UNUSED)
   check_mem_validity (f->esp, 4);
   int syscall_num = *(int*)f->esp;
 
+  /* check if the parameters are valid. */
   int param_num = syscall_param_num[syscall_num];
   check_mem_validity (f->esp, (param_num + 1) * 4);
 
+  /* extract the location of the parameters. */
   void *args[3];
   for (int i=1; i<=param_num; i++)
     args[i-1] = f->esp + i * 4;
   
+  /** call corresponding syscalls according to syscall_num 
+   *  extracted from interrupt frame. */
   switch (syscall_num)
   {
-    case SYS_HALT: halt (); //NOT_REACHED ();
-    case SYS_EXIT: exit (*(int*)args[0]); //NOT_REACHED ();
+    case SYS_HALT: halt (); 
+    case SYS_EXIT: exit (*(int*)args[0]); 
     case SYS_EXEC: 
       f->eax = exec (*(const char**)args[0]);
       break;
@@ -107,7 +111,8 @@ exit (int status)
   NOT_REACHED ();
 }
 
-/** Runs the executable whose name is given in cmd_line, passing any given arguments, 
+/** Runs the executable whose name is given in cmd_line, 
+ *  passing any given arguments, 
  *  and returns the new process's program id (pid). 
  * 
  *  If the program cannot load or run for any reason, must return pid -1, 
@@ -118,6 +123,8 @@ exec (const char *cmd_line)
   check_str_validity (cmd_line);
   pid_t pid = process_execute (cmd_line);
   if (pid == TID_ERROR) return -1;
+  /** wait for the process to finish loading to decide 
+   *  if the loading succeeded. */
   struct process *p = get_process_by_pid (pid);
   sema_down (&p->loading);
   if (!p->load_success) return -1;
@@ -135,7 +142,10 @@ wait (pid_t pid)
 static bool
 create (const char *file, unsigned initial_size)
 {
+  /* Check if all memory indicated is valid. */
   check_mem_validity (file, sizeof (const char*));
+
+  /* Create the file. */
   lock_acquire (&file_lock);
   bool ret = filesys_create (file, initial_size);
   lock_release (&file_lock);
@@ -150,12 +160,14 @@ open (const char *file)
   check_str_validity (file);
   struct process *cur_process = process_current ();
 
+  /* open the file in filesys. */
   lock_acquire (&file_lock);
   struct file *tmp_f = filesys_open (file);
   lock_release (&file_lock);
   if (tmp_f == NULL)
     return FD_ERROR;
 
+  /* allocate an entry in the fd table for the file. */
   struct opened_file * f = malloc (sizeof (struct opened_file));
   if (f == NULL)
     return FD_ERROR;
@@ -169,17 +181,20 @@ open (const char *file)
 
 /** Reads size bytes from the file open as fd into buffer. 
  *  Returns the number of bytes actually read (0 at end of file), 
- *  or -1 if the file could not be read (due to a condition other than end of file). 
+ *  or -1 if the file could not be read 
+ *  (due to a condition other than end of file). 
  * 
  *  Fd 0 reads from the keyboard using input_getc(). */
 static int
 read (int fd, void *buffer, unsigned size)
 {
   check_ptr_validity (buffer);
+  /* if STDIN, just read from the console. */
   if (fd == 0)
   {
     int i = 0;
-    for (uint8_t ch = input_getc (); ch != '\r' && i < size; i++, ch = input_getc ())
+    for (uint8_t ch = input_getc (); ch != '\r' && i < (uint8_t) size; 
+         i++, ch = input_getc ())
       *(uint8_t*)(buffer + i) = ch;
     return i;
   }
@@ -196,16 +211,18 @@ read (int fd, void *buffer, unsigned size)
  *  Returns the number of bytes actually written.
  * 
  *  Fd 1 writes to the console. 
- *  Your code to write to the console should write all of buffer in one call to putbuf(). */
+ */
 static int
 write (int fd, const void *buffer, unsigned size)
 {
   check_mem_validity (buffer, size);
+  /* if STDOUT, just write to the console. */
   if (fd == 1)  
   {
     putbuf ((const char*)buffer, size);
     return size;
   }
+
   struct opened_file *of = get_opened_file_by_fd (fd);
   if (of == NULL || of->file == NULL)
     return -1;
@@ -216,6 +233,8 @@ write (int fd, const void *buffer, unsigned size)
   return real_size;
 }
 
+/** Check if the all the memory piece indicated is valid.
+ *  Check for start and end and each pages in between. */
 static void
 check_mem_validity (const void *ptr, size_t size)
 {
@@ -224,6 +243,7 @@ check_mem_validity (const void *ptr, size_t size)
   check_ptr_validity (ptr + size);
 }
 
+/** Check if the pointer is valid. */
 static void 
 check_ptr_validity (const void *ptr)
 {
@@ -233,6 +253,8 @@ check_ptr_validity (const void *ptr)
   NOT_REACHED ();
 }
 
+/** Check if the whole string is valid. 
+ *  Check char by char until reaching '\0'. */
 static void
 check_str_validity (const char *ptr)
 {
@@ -245,6 +267,7 @@ check_str_validity (const char *ptr)
   }
 }
 
+/** remove a file from the file system. */
 static bool 
 remove (const char *file) 
 {
@@ -255,44 +278,50 @@ remove (const char *file)
   return ret;
 }
 
+/** Get the size of a opened file. */
 static int 
 filesize (int fd)
 {
-  struct process *cur_process = process_current ();
   struct opened_file* file= get_opened_file_by_fd (fd);
   if (file == NULL)
     return -1;
+
   lock_acquire (&file_lock);
   int fz = file_length(file->file);
   lock_release (&file_lock);
   return fz;
 }
 
+/** Move the position of the opened file's handle to a new place. */
 static void 
 seek (int fd, unsigned position) 
 {
   struct opened_file *of = get_opened_file_by_fd (fd);
+
   lock_acquire (&file_lock);
   file_seek (of->file, position);
   lock_release (&file_lock);
 }
 
+/** Check where the file handle is at. */
 static unsigned 
 tell (int fd) 
 {
   struct opened_file *of = get_opened_file_by_fd (fd);
+
   lock_acquire (&file_lock);
   unsigned ret = file_tell(of->file);
   lock_release (&file_lock);
   return ret;
 }
 
+/* Close an opened file. */
 static void 
 close (int fd) 
 {
-  struct process *cur_process = process_current ();
   struct opened_file *of = get_opened_file_by_fd (fd);
 
+  /* remove the file from fd table. */
   list_remove (&of->elem);
 
   lock_acquire (&file_lock);
@@ -301,12 +330,14 @@ close (int fd)
   free (of);
 }
 
+/** Get opened files by its fd in current process. */
 static struct opened_file* 
 get_opened_file_by_fd (int fd)
 {
   struct process *cur_process = process_current ();
   if (list_empty (&cur_process->opened_files))
     exit (-1);
+  /* iterate through the opened file table to find the file. */
   for (struct list_elem *e = list_front (&cur_process->opened_files);
        e != list_end (&cur_process->opened_files); e = list_next (e))
       {
@@ -319,4 +350,5 @@ get_opened_file_by_fd (int fd)
         }
       }
   exit (-1);
+  NOT_REACHED ();
 }

@@ -56,7 +56,8 @@ process_execute (const char *file_name)
   real_file_name = strtok_r (real_file_name, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (real_file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (real_file_name, PRI_DEFAULT, 
+                       start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   palloc_free_page (real_file_name); 
@@ -145,8 +146,7 @@ start_process (void *file_name_)
 }
 
 /** Create a struct process saving the process-related information. 
- * This function is only called within thread_create.
-*/
+ * This function is only called within thread_create. */
 struct process*
 process_create (void)
 {
@@ -167,7 +167,7 @@ process_create (void)
   return p;  
 }
 
-/** Waits for thread TID to die and returns its exit status.  If
+/* Waits for thread TID to die and returns its exit status.  If
    it was terminated by the kernel (i.e. killed due to an
    exception), returns -1.  If TID is invalid or if it was not a
    child of the calling process, or if process_wait() has already
@@ -175,7 +175,8 @@ process_create (void)
    immediately, without waiting.
 
    This function will be implemented in problem 2-2.  For now, it
-   does nothing. */
+   does nothing. 
+*/
 int
 process_wait (tid_t child_tid) 
 {
@@ -195,7 +196,9 @@ process_wait (tid_t child_tid)
   return ret;
 }
 
-/** Free the current process's resources. */
+/** Free the current process's resources, 
+ *  along with (possibly) its files and children.
+ */
 void
 process_exit (void)
 {
@@ -271,6 +274,8 @@ process_activate (void)
 }
 
 
+/** Get the child of current process by PID.
+ *  If current process is the root process, then find from all_list. */
 struct process*
 get_process_by_pid (pid_t pid)
 {
@@ -298,16 +303,20 @@ get_process_by_pid (pid_t pid)
   return NULL;
 }
 
+/** A macro to get the current process. */
 struct process*
 process_current (void)
 {
   return thread_current ()->process;
 }
 
+/** Free the resources occupied by current process.
+ *  This includes its process frame and opened files. */
 static void
 free_process (struct process *p)
 {
   lock_acquire (&file_lock);
+  /* Close all the opened files. */
   while (!list_empty (&p->opened_files))
   {
     struct opened_file *f = list_entry (list_pop_front(&p->opened_files),
@@ -316,6 +325,7 @@ free_process (struct process *p)
     free (f);
   }
   lock_release (&file_lock);
+  /* free the process. */
   free (p);
 }
 
