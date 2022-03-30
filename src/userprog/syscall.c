@@ -317,8 +317,7 @@ close (int fd)
 static struct opened_file* 
 get_opened_file_by_fd (int fd)
 {
-  return thread_current ()->process->fd_table[fd];
-  /*
+  //return thread_current ()->process->fd_table[fd];
   struct process *cur_process = process_current ();
   for (struct list_elem *e = list_front (&cur_process->opened_files);
        e != list_end (&cur_process->opened_files); e = list_next (e))
@@ -327,6 +326,5 @@ get_opened_file_by_fd (int fd)
         if (f->fd == fd)
           return f;
       }
-    */
-  return NULL;
+  exit (-1);
 }
