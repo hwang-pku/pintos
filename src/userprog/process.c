@@ -15,6 +15,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -58,6 +59,7 @@ process_execute (const char *file_name)
   tid = thread_create (real_file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
+  palloc_free_page (real_file_name); 
   return tid;
 }
 
@@ -148,8 +150,7 @@ start_process (void *file_name_)
 struct process*
 process_create (void)
 {
-  struct process *p;
-  p = palloc_get_page (PAL_ZERO);
+  struct process *p = malloc (sizeof (struct process));
   if (p == NULL)
     return NULL;
 
@@ -312,10 +313,10 @@ free_process (struct process *p)
     struct opened_file *f = list_entry (list_pop_front(&p->opened_files),
                                         struct opened_file, elem);
     file_close (f->file);
-    palloc_free_page (f);
+    free (f);
   }
   lock_release (&file_lock);
-  palloc_free_page (p);
+  free (p);
 }
 
 /** We load ELF binaries.  The following definitions are taken

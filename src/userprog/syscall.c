@@ -9,6 +9,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "devices/shutdown.h"
 #include "devices/input.h"
 #include "userprog/pagedir.h"
@@ -155,14 +156,13 @@ open (const char *file)
   if (tmp_f == NULL)
     return FD_ERROR;
 
-  struct opened_file * f = palloc_get_page (PAL_ZERO);
+  struct opened_file * f = malloc (sizeof (struct opened_file));
   if (f == NULL)
     return FD_ERROR;
 
   f->fd = cur_process->next_fd++;
   f->file = tmp_f;
   list_push_back (&cur_process->opened_files, &f->elem);
-  //cur_process->fd_table[f->fd] = f;
 
   return f->fd;
 }
@@ -298,7 +298,7 @@ close (int fd)
   lock_acquire (&file_lock);
   file_close (of->file);
   lock_release (&file_lock);
-  palloc_free_page (of);
+  free (of);
 }
 
 static struct opened_file* 
