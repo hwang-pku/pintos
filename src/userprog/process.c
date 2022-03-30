@@ -96,6 +96,11 @@ start_process (void *file_name_)
       if_.esp -= str_size;
       strlcpy((char *)if_.esp, token, str_size);
       argv[argc++] = if_.esp;
+      if (argc >= 25)
+      {
+        success = false;
+        goto failed;
+      }
     }
 
     /* add NULL at the end of argv */
@@ -124,6 +129,7 @@ start_process (void *file_name_)
     file_deny_write (cur_process->executable);
   }
 
+failed:
   cur_process->load_success = success;
   sema_up(&cur_process->loading);
 
