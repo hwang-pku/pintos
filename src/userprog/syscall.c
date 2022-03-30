@@ -15,11 +15,10 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
-#define MAX_FD 63
+#define MAX_FD 129
 #define FD_ERROR -1
 
 int syscall_param_num[13] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1};
-//static struct lock file_lock;
 
 static void syscall_handler (struct intr_frame *);
 
@@ -37,6 +36,7 @@ static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
 
+static struct opened_file* get_opened_file_by_fd (int);
 static void find_next_fd (void);
 static void check_fd_validity (int);
 static void check_ptr_validity (const void *);
@@ -47,7 +47,6 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  //lock_init (&file_lock);
 }
 
 
@@ -72,11 +71,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       f->eax = exec (*(const char**)args[0]);
       break;
     case SYS_WAIT: 
-      f->eax = wait (*(pid_t*)args[0]);
-      break;
+      f->eax = wait (*(pid_t*)args[0]); break;
     case SYS_CREATE: 
-      f->eax = create (*(const char**)args[0], *(unsigned*)args[1]);
-      break;
+      f->eax = create (*(const char**)args[0], *(unsigned*)args[1]); break;
     case SYS_REMOVE: f->eax = remove (*(const char**)args[0]); break;
     case SYS_OPEN: f->eax = open (*(const char**)args[0]); break;
     case SYS_FILESIZE: f->eax = filesize (*(int*)args[0]); break;
@@ -335,4 +332,18 @@ close (int fd)
   file_close (f->file);
   lock_release (&file_lock);
   palloc_free_page (f);
+}
+
+static struct opened_file* 
+get_opened_file_by_fd (int fd)
+{
+  struct process *cur_process = process_current ();
+  for (struct list_elem *e = list_front (&cur_process->opened_files);
+       e != list_end (&cur_process->opened_files); e = list_next (e))
+      {
+        struct opened_file *f = list_entry (e, struct opened_file, elem);
+        if (f->fd == fd)
+          return f;
+      }
+  return NULL;
 }

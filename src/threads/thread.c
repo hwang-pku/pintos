@@ -217,7 +217,6 @@ thread_create (const char *name, int priority,
   p->pid = tid;
   t->process = p;
   p->thread = t;
-  p->father_thread = thread_current ();
   if (thread_current ()->tid != 1)
     list_push_back(&thread_current ()->process->childs, &p->elem);
   #endif
@@ -732,6 +731,12 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
+      /*
+      #ifdef USERPROG
+        if (prev->process != NULL && prev->process->free_self)
+          palloc_free_page (prev->process);
+      #endif
+      */
       palloc_free_page (prev);
     }
 }

@@ -20,6 +20,7 @@
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static void free_process (struct process*);
 static struct list all_list;
 
 /** Sets up process system. */
@@ -159,9 +160,9 @@ process_create (void)
   memset (p->fd_table, NULL, sizeof(p->fd_table));
   sema_init (&p->wait_for_process, 0);
   sema_init (&p->loading, 0);
-  lock_init (&p->childs_lock);
   list_push_back (&all_list, &p->all_elem);
   p->running = true;
+  p->free_self = false;
 
   return p;  
 }
@@ -178,25 +179,18 @@ process_create (void)
 int
 process_wait (tid_t child_tid) 
 {
-  enum intr_level e = intr_disable ();
   struct process *p = get_process_by_pid(child_tid);
 
-  if (p == NULL || p->thread == NULL)
+  if (p == NULL)
     return -1;
-  if (p->thread->tid != child_tid)
-    return -1;
-  if (p->father_thread != thread_current ())
-    return -1;
-  if (!list_empty(&p->wait_for_process.waiters))
-    return -1;
-  intr_set_level (e);
 
   sema_down (&p->wait_for_process);
 
   int ret = p->exit_status;
-  //if (thread_current ()->tid != 1)
-  //  list_remove (&p->elem);
-  //palloc_free_page (p);
+  if (thread_current ()->tid != 1)
+    list_remove (&p->elem);
+  free_process (p);
+
   return ret;
 }
 
@@ -234,10 +228,11 @@ process_exit (void)
     struct list_elem *e = list_front (&pcur->childs);
     ASSERT (e != NULL);
     struct process *child = list_entry (e, struct process, elem);
-    if (child->running)
-      process_wait (child->thread->tid);
     list_remove (e);
-    palloc_free_page (child);
+    if (child->running)
+      child->free_self = true;
+    else
+      free_process (child);
   }
 
   if (pcur->load_success)
@@ -245,10 +240,15 @@ process_exit (void)
     file_allow_write (pcur->executable);
     file_close (pcur->executable);
   }
-  sema_up (&pcur->wait_for_process);
-  pcur->running=false;
-}
 
+  if (pcur->free_self)
+    free_process (pcur);
+  else
+  {
+    pcur->running=false;
+    sema_up (&pcur->wait_for_process);
+  }
+}
 
 /** Sets up the CPU for running user code in the current
    thread.
@@ -300,6 +300,20 @@ process_current (void)
   return thread_current ()->process;
 }
 
+static void
+free_process (struct process *p)
+{
+  lock_acquire (&file_lock);
+  while (!list_empty (&p->opened_files))
+  {
+    struct opened_file *f = list_entry (list_pop_front(&p->opened_files),
+                                        struct opened_file, elem);
+    file_close (f->file);
+    palloc_free_page (f);
+  }
+  lock_release (&file_lock);
+  palloc_free_page (p);
+}
 
 /** We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
@@ -635,4 +649,3 @@ install_page (void *upage, void *kpage, bool writable)
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
-

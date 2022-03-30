@@ -11,8 +11,8 @@ struct process {
     int exit_status;
     bool load_success;
     bool running;
+    bool free_self;
     pid_t pid;
-    struct thread *father_thread;
     struct thread *thread;
     struct semaphore wait_for_process;
     struct semaphore loading;
@@ -20,12 +20,11 @@ struct process {
     struct list_elem elem;
 
     struct list childs;
-    struct lock childs_lock;
     struct file *executable;
 
     struct list opened_files;
     int min_available_fd;
-    struct opened_file *fd_table[64];
+    struct opened_file *fd_table[130];
 };
 
 void process_init (void);
