@@ -19,6 +19,7 @@
 #define MAX_FD 129
 #define FD_ERROR -1
 
+/* The number of parameters required for each syscall. */
 int syscall_param_num[13] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1};
 
 static void syscall_handler (struct intr_frame *);
