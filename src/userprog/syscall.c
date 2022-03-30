@@ -116,9 +116,10 @@ exec (const char *cmd_line)
 {
   check_str_validity (cmd_line);
   pid_t pid = process_execute (cmd_line);
+  if (pid == TID_ERROR) return -1;
   struct process *p = get_process_by_pid (pid);
   sema_down (&p->loading);
-  if (pid == TID_ERROR || !p->load_success) return -1;
+  if (!p->load_success) return -1;
   return pid;
 }
 
