@@ -37,7 +37,6 @@ static unsigned tell (int fd);
 static void close (int fd);
 
 static struct opened_file* get_opened_file_by_fd (int);
-static void check_fd_validity (int);
 static void check_ptr_validity (const void *);
 static void check_mem_validity (const void *, size_t);
 static void check_str_validity (const char *);
@@ -162,7 +161,7 @@ open (const char *file)
   f->fd = cur_process->next_fd++;
   f->file = tmp_f;
   list_push_back (&cur_process->opened_files, &f->elem);
-  cur_process->fd_table[f->fd] = f;
+  //cur_process->fd_table[f->fd] = f;
 
   return f->fd;
 }
@@ -184,10 +183,7 @@ read (int fd, void *buffer, unsigned size)
     return i;
   }
 
-  check_fd_validity (fd);
   struct opened_file *of = get_opened_file_by_fd (fd);
-  if (of == NULL || of->file == NULL)
-    return -1;
 
   lock_acquire (&file_lock);
   int real_size = file_read (of->file, buffer, size);
@@ -209,7 +205,6 @@ write (int fd, const void *buffer, unsigned size)
     putbuf ((const char*)buffer, size);
     return size;
   }
-  check_fd_validity (fd);
   struct opened_file *of = get_opened_file_by_fd (fd);
   if (of == NULL || of->file == NULL)
     return -1;
@@ -249,13 +244,6 @@ check_str_validity (const char *ptr)
   }
 }
 
-static void
-check_fd_validity (int fd)
-{
-  if (fd < 0 || fd > MAX_FD || process_current ()->fd_table[fd] == NULL) 
-    exit(-1);
-}
-
 static bool 
 remove (const char *file) 
 {
@@ -282,18 +270,18 @@ filesize (int fd)
 static void 
 seek (int fd, unsigned position) 
 {
-  check_fd_validity (fd);
+  struct opened_file *of = get_opened_file_by_fd (fd);
   lock_acquire (&file_lock);
-  file_seek (get_opened_file_by_fd (fd)->file, position);
+  file_seek (of->file, position);
   lock_release (&file_lock);
 }
 
 static unsigned 
 tell (int fd) 
 {
-  check_fd_validity (fd);
+  struct opened_file *of = get_opened_file_by_fd (fd);
   lock_acquire (&file_lock);
-  unsigned ret = file_tell(get_opened_file_by_fd (fd)->file);
+  unsigned ret = file_tell(of->file);
   lock_release (&file_lock);
   return ret;
 }
@@ -301,30 +289,33 @@ tell (int fd)
 static void 
 close (int fd) 
 {
-  check_fd_validity (fd);
   struct process *cur_process = process_current ();
-  struct opened_file *f = get_opened_file_by_fd (fd);
+  struct opened_file *of = get_opened_file_by_fd (fd);
 
-  cur_process->fd_table[fd] = NULL;
-  list_remove (&f->elem);
+  list_remove (&of->elem);
 
   lock_acquire (&file_lock);
-  file_close (f->file);
+  file_close (of->file);
   lock_release (&file_lock);
-  palloc_free_page (f);
+  palloc_free_page (of);
 }
 
 static struct opened_file* 
 get_opened_file_by_fd (int fd)
 {
-  //return thread_current ()->process->fd_table[fd];
   struct process *cur_process = process_current ();
+  if (list_empty (&cur_process->opened_files))
+    exit (-1);
   for (struct list_elem *e = list_front (&cur_process->opened_files);
        e != list_end (&cur_process->opened_files); e = list_next (e))
       {
         struct opened_file *f = list_entry (e, struct opened_file, elem);
         if (f->fd == fd)
+        {
+          if (f->file == NULL)
+            exit (-1);
           return f;
+        }
       }
   exit (-1);
 }

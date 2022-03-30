@@ -157,7 +157,6 @@ process_create (void)
   list_init (&p->opened_files);
   p->next_fd = 2;
 
-  memset (p->fd_table, NULL, sizeof(p->fd_table));
   sema_init (&p->wait_for_process, 0);
   sema_init (&p->loading, 0);
   list_push_back (&all_list, &p->all_elem);
