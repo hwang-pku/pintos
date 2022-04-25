@@ -90,10 +90,20 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
     {
       if (flags & PAL_ZERO)
         memset (pages, 0, PGSIZE * page_cnt);
+
+#ifdef VM
+      // add frame into frame table
+      if (flags & PAL_USER)
+        PANIC ("add frame not implemented");
+#endif
+
     }
-  else 
+  else
     {
-      if (flags & PAL_ASSERT)
+#ifdef VM
+      // do eviction here
+#endif
+      if (pages == NULL && (flags & PAL_ASSERT))
         PANIC ("palloc_get: out of pages");
     }
 
