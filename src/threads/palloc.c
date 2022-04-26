@@ -10,6 +10,9 @@
 #include "threads/loader.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#ifdef VM
+#include "vm/frame.h"
+#endif
 
 /** Page allocator.  Hands out memory in page-size (or
    page-multiple) chunks.  See malloc.h for an allocator that
@@ -110,7 +113,17 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
 void *
 palloc_get_page (enum palloc_flags flags) 
 {
-  return palloc_get_multiple (flags, 1);
+  void* page = palloc_get_multiple (flags, 1);
+#ifdef VM
+  if (flags & PAL_USER)
+  {
+    if(page != NULL)
+      vm_add_fe (page);      
+    else 
+      PANIC ("palloc_get: eviction not implemented yet!");
+  }
+#endif
+  return page;
 }
 
 /** Frees the PAGE_CNT pages starting at PAGES. */
@@ -145,6 +158,11 @@ palloc_free_multiple (void *pages, size_t page_cnt)
 void
 palloc_free_page (void *page) 
 {
+#ifdef VM
+  /* remove frame entry if page is from user pool */
+  if (page_from_pool (&user_pool, page))
+    vm_remove_fe (page);  
+#endif
   palloc_free_multiple (page, 1);
 }
 
