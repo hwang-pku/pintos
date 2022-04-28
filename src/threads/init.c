@@ -39,6 +39,7 @@
 #endif
 #ifdef VM
 #include "vm/frame.h"
+#include "vm/swap.h"
 #endif
 
 /** Page directory with kernel mappings only. */
@@ -133,7 +134,8 @@ pintos_init (void)
 #endif
 
 #ifdef VM
-  vm_init ();
+  frame_table_init ();
+  swap_init ();
 #endif
 
   printf ("Boot complete.\n");
