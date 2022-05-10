@@ -7,7 +7,7 @@
 static struct list frame_table;
 static struct lock ft_lock;
 
-void vm_init (void)
+void frame_table_init (void)
 {
     lock_init (&ft_lock);
     list_init (&frame_table);

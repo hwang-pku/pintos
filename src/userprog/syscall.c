@@ -15,6 +15,7 @@
 #include "userprog/pagedir.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "vm/splpagetable.h"
 
 #define MAX_FD 129
 #define FD_ERROR -1
@@ -42,6 +43,8 @@ static struct opened_file* get_opened_file_by_fd (int);
 static void check_ptr_validity (const void *);
 static void check_mem_validity (const void *, size_t);
 static void check_str_validity (const char *);
+static bool try_load_page (const void *);
+static void check_writability (const void *);
 
 void
 syscall_init (void) 
@@ -190,6 +193,25 @@ static int
 read (int fd, void *buffer, unsigned size)
 {
   check_ptr_validity (buffer);
+  /* Install pages automatically */
+  void *p = buffer;
+  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
+  {
+    if (!try_load_page (p))
+    {
+      exit (-1);
+      NOT_REACHED ();
+    }
+    check_writability (p);
+    p += PGSIZE;
+  }
+  if (!try_load_page (buffer + size))
+  {
+    exit (-1);
+    NOT_REACHED ();
+  }
+  check_writability (buffer + size);
+  
   /* if STDIN, just read from the console. */
   if (fd == 0)
   {
@@ -352,4 +374,22 @@ get_opened_file_by_fd (int fd)
       }
   exit (-1);
   NOT_REACHED ();
+}
+
+/* Try to load a user page, returns success.
+   Returns true if already present */
+static bool try_load_page (const void *upage)
+{
+  if (pagedir_get_page (thread_current ()->pagedir, upage) != NULL)
+    return true;
+  /* page not present */
+  return load_page (pg_round_down (upage));
+}
+
+/* Check writability of a page from supplementary page table. */
+static void check_writability (const void *upage)
+{
+  /* page not writable, kill the userprog */
+  if (!is_writable (upage))
+    exit (-1);
 }

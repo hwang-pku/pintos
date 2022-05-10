@@ -5,6 +5,8 @@
 #include "userprog/process.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "vm/splpagetable.h"
 
 /** Number of page faults processed. */
 static long long page_fault_cnt;
@@ -154,14 +156,23 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
+  /* privacy violation / null pointer */
+  //if (!not_present || fault_addr == NULL || !is_user_vaddr(fault_addr))
+  if (fault_addr == NULL || !is_user_vaddr(fault_addr))
+  {
+    kill (f);
+    return ;
+  }
+
+  if (!load_page (pg_round_down (fault_addr)))
+  {
+   printf ("Page fault at %p: %s error %s page in %s context.\n",
           fault_addr,
           not_present ? "not present" : "rights violation",
           write ? "writing" : "reading",
           user ? "user" : "kernel");
-  kill (f);
+   kill (f);
+  }
+
 }
 

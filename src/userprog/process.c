@@ -19,6 +19,8 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#include "vm/splpagetable.h"
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static void free_process (struct process*);
@@ -170,6 +172,9 @@ process_create (void)
   p->running = true;
   p->free_self = false;
 
+#ifdef VM
+  hash_init (&p->spl_page_table, hash_spl_pe, hash_less_spl_pe, NULL);
+#endif  
   return p;  
 }
 
@@ -330,7 +335,13 @@ free_process (struct process *p)
     file_close (f->file);
     free (f);
   }
+  /* Close executable. */
+  //if (p->executable != NULL)
+  //  file_allow_write (p->executable);
+
   lock_release (&file_lock);
+  
+  hash_destroy (&p->spl_page_table, hash_free_spl_pe);
   /* free the process. */
   free (p);
 }
@@ -518,7 +529,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  // file_close (file);
   return success;
 }
 
@@ -571,12 +582,12 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
   return true;
 }
 
-/** Loads a segment starting at offset OFS in FILE at address
+/** Loads a segment starting at offset OFFSET in FILE at address
    UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
    memory are initialized, as follows:
 
         - READ_BYTES bytes at UPAGE must be read from FILE
-          starting at offset OFS.
+          starting at offset OFFSET.
 
         - ZERO_BYTES bytes at UPAGE + READ_BYTES must be zeroed.
 
@@ -586,14 +597,14 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
    Return true if successful, false if a memory allocation error
    or disk read error occurs. */
 static bool
-load_segment (struct file *file, off_t ofs, uint8_t *upage,
+load_segment (struct file *file, off_t offset, uint8_t *upage,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
 {
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
-  ASSERT (ofs % PGSIZE == 0);
+  ASSERT (offset % PGSIZE == 0);
+  struct hash *pt = &process_current ()->spl_page_table;
 
-  file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -601,13 +612,19 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
          and zero the final PAGE_ZERO_BYTES bytes. */
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
-      /* Get a page of memory. */
+      enum page_type type = page_read_bytes == PGSIZE ? PG_FILE 
+                          : (page_zero_bytes == PGSIZE ? PG_ZERO : PG_MISC);
+      
+      /* Add a page to supplementary page table.
+         Read from file when a page fault happens. */
+      add_spl_pe (type, pt, file, offset, 
+                  upage, read_bytes, zero_bytes, writable);
+      
+      /*
       uint8_t *kpage = palloc_get_page (PAL_USER);
       if (kpage == NULL)
         return false;
 
-      /* Load this page. */
       if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
           palloc_free_page (kpage);
@@ -615,20 +632,22 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-      /* Add the page to the process's address space. */
       if (!install_page (upage, kpage, writable)) 
         {
           palloc_free_page (kpage);
           return false; 
         }
+        */
 
       /* Advance. */
+      offset += page_read_bytes;
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
     }
   return true;
 }
+
 
 /** Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
@@ -639,7 +658,12 @@ setup_stack (void **esp)
   bool success = false;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
+  struct hash *pt = &process_current ()->spl_page_table;
+  
+  /* Add stack page onto supplementary page table. */
+  add_spl_pe (PG_ZERO, pt, NULL, 0, PHYS_BASE - PGSIZE, 0, PGSIZE, true);
+  *esp = PHYS_BASE;
+  /*if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
@@ -647,7 +671,8 @@ setup_stack (void **esp)
       else
         palloc_free_page (kpage);
     }
-  return success;
+  return success;*/
+  return true;
 }
 
 /** Adds a mapping from user virtual address UPAGE to kernel

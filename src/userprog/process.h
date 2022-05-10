@@ -1,6 +1,7 @@
 #ifndef USERPROG_PROCESS_H
 #define USERPROG_PROCESS_H
 
+#include <hash.h>
 #include "filesys/file.h"
 #include "threads/thread.h"
 #include "threads/synch.h"
@@ -26,6 +27,9 @@ struct process {
 
     struct list opened_files;           /**< Opened file list. */
     int next_fd;                        /**< Next fd assigned. */
+#ifdef VM
+    struct hash spl_page_table;
+#endif
 };
 
 void process_init (void);

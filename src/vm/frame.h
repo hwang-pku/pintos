@@ -4,10 +4,9 @@
 
 struct frame{
     void *frame;
-    void *page;
     tid_t tid;
     struct list_elem elem;
 };
 
-void vm_init (void);
+void frame_table_init (void);
 void vm_add_fe (void*);
