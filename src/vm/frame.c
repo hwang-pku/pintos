@@ -7,14 +7,15 @@
 
 static struct list frame_table;
 static struct lock ft_lock;
+static struct list_elem *evict_pt;
+static struct list_elem* next_frame (struct list_elem*);
 
 void frame_table_init (void)
 {
+    evict_pt = NULL;
     lock_init (&ft_lock);
     list_init (&frame_table);
 }
-
-
 
 /* for debugging purpose only */
 static struct frame* vm_get_fe (void *frame)
@@ -37,9 +38,11 @@ static struct frame* vm_get_fe (void *frame)
  * Get a frame from physical memory.
  * Automatically evict one if no space left.
  */
-void* get_frame (void)
+void* get_frame (void *upage)
 {
     void *ret = palloc_get_page (PAL_USER);
+    if (ret != NULL)
+        add_frame (ret, upage);      
     if (ret != NULL)
         return ret;
     PANIC ("Eviction not implemented yet.");
@@ -48,10 +51,11 @@ void* get_frame (void)
 /** 
  * Add frame entry into frame table. 
 */
-void add_frame (void *frame)
+void add_frame (void *frame, void *upage)
 {
     struct frame *f = malloc (sizeof (struct frame));
     f->frame = frame;
+    f->upage = upage;
     f->tid = thread_current ()->tid;
     
     lock_acquire (&ft_lock);

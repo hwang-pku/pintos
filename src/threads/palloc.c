@@ -111,10 +111,11 @@ palloc_get_multiple (enum palloc_flags flags, size_t page_cnt)
 void *
 palloc_get_page (enum palloc_flags flags) 
 {
-  void* page = palloc_get_multiple (flags, 1);
+  return palloc_get_multiple (flags, 1);
+  /*void* page = palloc_get_multiple (flags, 1);
   if (flags & PAL_USER && page != NULL)
     add_frame (page);      
-  return page;
+  return page;*/
 }
 
 /** Frees the PAGE_CNT pages starting at PAGES. */
