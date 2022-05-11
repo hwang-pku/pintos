@@ -10,3 +10,4 @@ struct frame{
 
 void frame_table_init (void);
 void vm_add_fe (void*);
+void vm_remove_fe (void*);

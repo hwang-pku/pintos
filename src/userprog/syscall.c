@@ -44,7 +44,8 @@ static void check_ptr_validity (const void *);
 static void check_mem_validity (const void *, size_t);
 static void check_str_validity (const char *);
 static bool try_load_page (const void *);
-static void check_writability (const void *);
+static bool try_load_multiple (const void *, unsigned);
+static bool is_seg_writable (const void *, unsigned);
 
 void
 syscall_init (void) 
@@ -168,6 +169,7 @@ open (const char *file)
   lock_acquire (&file_lock);
   struct file *tmp_f = filesys_open (file);
   lock_release (&file_lock);
+
   if (tmp_f == NULL)
     return FD_ERROR;
 
@@ -192,26 +194,11 @@ open (const char *file)
 static int
 read (int fd, void *buffer, unsigned size)
 {
-  check_ptr_validity (buffer);
+  //check_ptr_validity (buffer);
   /* Install pages automatically */
-  void *p = buffer;
-  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
-  {
-    if (!try_load_page (p))
-    {
-      exit (-1);
-      NOT_REACHED ();
-    }
-    check_writability (p);
-    p += PGSIZE;
-  }
-  if (!try_load_page (buffer + size))
-  {
+  if (!try_load_multiple (buffer, size) || !is_seg_writable (buffer, size))
     exit (-1);
-    NOT_REACHED ();
-  }
-  check_writability (buffer + size);
-  
+
   /* if STDIN, just read from the console. */
   if (fd == 0)
   {
@@ -239,6 +226,10 @@ static int
 write (int fd, const void *buffer, unsigned size)
 {
   check_mem_validity (buffer, size);
+  /* Install pages automatically */
+  if (!try_load_multiple (buffer, size))
+    exit (-1);
+
   /* if STDOUT, just write to the console. */
   if (fd == 1)  
   {
@@ -376,20 +367,33 @@ get_opened_file_by_fd (int fd)
   NOT_REACHED ();
 }
 
+static bool try_load_multiple (const void *upage, unsigned size)
+{
+  void *p = upage;
+  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++, p += PGSIZE)
+    if (!try_load_page (p))
+      return false;
+  return try_load_page (upage + size);
+}
+
 /* Try to load a user page, returns success.
    Returns true if already present */
 static bool try_load_page (const void *upage)
 {
+  if (upage == NULL || !is_user_vaddr (upage))
+    return false;
   if (pagedir_get_page (thread_current ()->pagedir, upage) != NULL)
     return true;
   /* page not present */
   return load_page (pg_round_down (upage));
 }
 
-/* Check writability of a page from supplementary page table. */
-static void check_writability (const void *upage)
+/* Check writability of a segment from supplementary page table. */
+static bool is_seg_writable (const void *upage, unsigned size)
 {
-  /* page not writable, kill the userprog */
-  if (!is_writable (upage))
-    exit (-1);
+  void *p = upage;
+  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++, p += PGSIZE)
+    if (!is_writable (p))
+      return false;
+  return is_writable (upage + size);
 }

@@ -13,6 +13,23 @@ void frame_table_init (void)
     list_init (&frame_table);
 }
 
+/* for debugging purpose only */
+static struct frame* vm_get_fe (void *frame)
+{
+    //lock_acquire (&ft_lock);
+    for (struct list_elem *e = list_begin (&frame_table); e != list_end (&frame_table); e = list_next (e))
+    {
+        struct frame *f = list_entry (e, struct frame, elem);
+        if (f->frame == frame)
+        {
+            lock_release (&ft_lock);
+            return f;
+        }
+    }
+    //lock_release (&ft_lock);
+    return NULL;
+}
+
 /** 
  * Add frame entry into frame table. 
 */
@@ -23,6 +40,7 @@ void vm_add_fe (void *frame)
     f->tid = thread_current ()->tid;
     
     lock_acquire (&ft_lock);
+    ASSERT (vm_get_fe (frame) == NULL);
     list_push_back (&frame_table, &f->elem);
     lock_release (&ft_lock);
 }

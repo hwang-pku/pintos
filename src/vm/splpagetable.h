@@ -13,6 +13,7 @@ struct spl_pe{
     struct file *file;
     off_t offset;
     uint8_t *upage;
+    uint8_t *kpage;
     uint32_t read_bytes;
     uint32_t zero_bytes;
     bool writable;
@@ -29,3 +30,4 @@ bool load_page (uint8_t*);
 bool add_spl_pe (enum page_type, struct hash*, struct file*, 
                  off_t, uint8_t*, uint32_t, uint32_t, bool);
 bool is_writable (const void*);
+void free_spl_pt (struct hash *);

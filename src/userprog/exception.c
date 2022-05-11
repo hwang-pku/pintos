@@ -156,10 +156,18 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  //printf("Page fault triggered! %d\n", thread_current ()->tid);
+
   /* privacy violation / null pointer */
-  //if (!not_present || fault_addr == NULL || !is_user_vaddr(fault_addr))
   if (fault_addr == NULL || !is_user_vaddr(fault_addr))
   {
+   /*
+    if(fault_addr == NULL)
+      printf ("Page fault dereferencing a NULL pointer\n");
+    else
+      printf ("Page fault due to accessing kernel region\n");
+   */
+     
     kill (f);
     return ;
   }
