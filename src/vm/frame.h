@@ -11,4 +11,4 @@ struct frame{
 void frame_table_init (void);
 void add_frame (void*);
 void remove_frame (void*);
-void* get_frame (void*);
+void* get_frame (void);

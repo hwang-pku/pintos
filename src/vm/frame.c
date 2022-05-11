@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/synch.h"
+#include "threads/palloc.h"
 
 static struct list frame_table;
 static struct lock ft_lock;
@@ -12,6 +13,8 @@ void frame_table_init (void)
     lock_init (&ft_lock);
     list_init (&frame_table);
 }
+
+
 
 /* for debugging purpose only */
 static struct frame* vm_get_fe (void *frame)
@@ -28,6 +31,18 @@ static struct frame* vm_get_fe (void *frame)
     }
     //lock_release (&ft_lock);
     return NULL;
+}
+
+/**
+ * Get a frame from physical memory.
+ * Automatically evict one if no space left.
+ */
+void* get_frame (void)
+{
+    void *ret = palloc_get_page (PAL_USER);
+    if (ret != NULL)
+        return ret;
+    PANIC ("Eviction not implemented yet.");
 }
 
 /** 

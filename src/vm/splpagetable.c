@@ -63,11 +63,11 @@ bool load_page (uint8_t *upage)
     if (pe->present && pe->writable == false)
         return false;
 
-    uint8_t *kpage = palloc_get_page (PAL_USER);
+    uint8_t *kpage = get_frame ();
     if (kpage == NULL)
     {
         //printf ("load_page: page allocation failed\n");
-        palloc_free_page (kpage);
+        //palloc_free_page (kpage);
         return false;
     }
     ASSERT (pg_ofs (kpage) == 0);
