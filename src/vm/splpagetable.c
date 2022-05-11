@@ -63,7 +63,7 @@ bool load_page (uint8_t *upage)
     if (pe->present && pe->writable == false)
         return false;
 
-    uint8_t *kpage = get_frame ();
+    uint8_t *kpage = get_frame (upage);
     if (kpage == NULL)
     {
         //printf ("load_page: page allocation failed\n");
