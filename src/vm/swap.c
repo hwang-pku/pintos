@@ -1,3 +1,4 @@
+#include "vm/swap.h"
 #include <bitmap.h>
 #include <debug.h>
 #include "devices/block.h"
@@ -20,14 +21,14 @@ void swap_init (void)
 }
 
 /**
- * Swap out the page located at UPAGE
+ * Swap out the frame located at KPAGE
  * returns the slot number assigned in the swap device
  * if failed, return BITMAP_ERROR
  */
-size_t swap_out (void *upage)
+size_t swap_out (void *kpage)
 {
     lock_acquire (&swap_lock);
-    size_t slot = bitmap_scan_and_flip (swap_device, 0, 1, false);
+    size_t slot = bitmap_scan_and_flip (map, 0, 1, false);
     if (slot == BITMAP_ERROR)
     {
         lock_release (&swap_lock);
@@ -35,22 +36,22 @@ size_t swap_out (void *upage)
     }
     for (size_t i = 0; i < SECTOR_PER_PAGE; i++)
         block_write (swap_device, slot * SECTOR_PER_PAGE + i,
-                     upage + i * BLOCK_SECTOR_SIZE);
+                     kpage + i * BLOCK_SECTOR_SIZE);
     lock_release (&swap_lock);
     return slot;
 }
 
 /**
- * Swap in a page from swap device at given SLOT to UPAGE
+ * Swap in a page from swap device at given SLOT to KPAGE
  */
-void swap_in (size_t slot, void *upage)
+void swap_in (size_t slot, void *kpage)
 {
     // Assert that the given slot is not empty
     ASSERT (bitmap_test (map, slot));
     lock_acquire (&swap_lock);
     for (size_t i = 0; i < SECTOR_PER_PAGE; i++)
         block_read (swap_device, slot * SECTOR_PER_PAGE + i,
-                    upage + i * BLOCK_SECTOR_SIZE);
+                    kpage + i * BLOCK_SECTOR_SIZE);
     bitmap_flip (map, slot);
     lock_release (&swap_lock);
 }

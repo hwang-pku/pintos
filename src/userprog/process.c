@@ -176,6 +176,7 @@ process_create (void)
   p->free_self = false;
 
   hash_init (&p->spl_page_table, hash_spl_pe, hash_less_spl_pe, NULL);
+  lock_init (&p->spl_pt_lock);
   return p;  
 }
 
@@ -242,16 +243,6 @@ process_exit (void)
     lock_release (&file_lock);
   }
 
-  /* If set to free_self, reap this process. */
-  if (pcur->free_self)
-    free_process (pcur);
-  else
-  {
-    /* If not, there could be a father process waiting. */
-    pcur->running=false;
-    sema_up (&pcur->wait_for_process);
-  }
-
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -268,6 +259,18 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  /* should be put here so frame could always refer to spl_pe */
+  /* If set to free_self, reap this process. */
+  if (pcur->free_self)
+    free_process (pcur);
+  else
+  {
+    /* If not, there could be a father process waiting. */
+    pcur->running=false;
+    sema_up (&pcur->wait_for_process);
+  }
+
 }
 
 /** Sets up the CPU for running user code in the current

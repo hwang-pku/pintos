@@ -14,6 +14,7 @@
 #include "filesys/off_t.h"
 #include "vm/splpagetable.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 
 static struct spl_pe* find_spl_pe (struct hash*, uint8_t*);
 static bool install_page (void *, void *, bool);
@@ -63,7 +64,7 @@ bool load_page (uint8_t *upage)
     if (pe->present && pe->writable == false)
         return false;
 
-    uint8_t *kpage = get_frame (upage);
+    uint8_t *kpage = get_frame (pe);
     if (kpage == NULL)
     {
         //printf ("load_page: page allocation failed\n");
@@ -77,7 +78,8 @@ bool load_page (uint8_t *upage)
     /* If page is in swap */
     if (pe->type == PG_SWAP)
     {
-        PANIC ("load_page: swap not implemented");
+        //PANIC ("load_page: swap not implemented");
+        swap_in (pe->slot, kpage);
     }
     else
     {
@@ -127,12 +129,18 @@ bool add_spl_pe (enum page_type type, struct hash *spl_pt, struct file *file, of
     pe->zero_bytes = zero_bytes;
     pe->writable = writable;
     pe->present = false;
-    /* If entry already in supplementary page table */
+    pe->slot = -1;
+
+    struct lock *spl_pt_lock = &thread_current ()->process->spl_pt_lock;
+    lock_acquire (spl_pt_lock);
     if (hash_insert (spl_pt, &pe->elem) != NULL)
     {
+        /* If entry already in supplementary page table */
+        lock_release (spl_pt_lock);
         free (pe);
         return false;
     }
+    lock_release (spl_pt_lock);
     return true;
 }
 
@@ -148,7 +156,10 @@ static struct spl_pe* find_spl_pe (struct hash *hash, uint8_t *upage)
 {
     struct spl_pe pe;
     pe.upage = upage;
+    struct lock *spl_pt_lock = &thread_current ()->process->spl_pt_lock;
+    lock_acquire (spl_pt_lock);
     struct hash_elem *p = hash_find(hash, &pe.elem);
+    lock_release (spl_pt_lock);
     return p ? hash_entry(p, struct spl_pe, elem) : NULL;
 }
 

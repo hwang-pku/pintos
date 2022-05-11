@@ -1,3 +1,5 @@
+#ifndef __SPL_PT_H
+#define __SPL_PT_H
 #include <hash.h>
 #include "filesys/off_t.h"
 
@@ -16,6 +18,7 @@ struct spl_pe{
     uint8_t *kpage;
     uint32_t read_bytes;
     uint32_t zero_bytes;
+    size_t slot;
     bool writable;
     bool present;
     struct hash_elem elem;
@@ -31,3 +34,5 @@ bool add_spl_pe (enum page_type, struct hash*, struct file*,
                  off_t, uint8_t*, uint32_t, uint32_t, bool);
 bool is_writable (const void*);
 void free_spl_pt (struct hash *);
+
+#endif
