@@ -175,9 +175,7 @@ process_create (void)
   p->running = true;
   p->free_self = false;
 
-#ifdef VM
   hash_init (&p->spl_page_table, hash_spl_pe, hash_less_spl_pe, NULL);
-#endif  
   return p;  
 }
 

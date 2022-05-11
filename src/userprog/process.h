@@ -27,9 +27,7 @@ struct process {
 
     struct list opened_files;           /**< Opened file list. */
     int next_fd;                        /**< Next fd assigned. */
-#ifdef VM
     struct hash spl_page_table;
-#endif
 };
 
 void process_init (void);

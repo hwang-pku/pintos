@@ -33,7 +33,7 @@ static struct frame* vm_get_fe (void *frame)
 /** 
  * Add frame entry into frame table. 
 */
-void vm_add_fe (void *frame)
+void add_frame (void *frame)
 {
     struct frame *f = malloc (sizeof (struct frame));
     f->frame = frame;
@@ -48,7 +48,7 @@ void vm_add_fe (void *frame)
 /**
  * Remove a frame entry from frame table
  */
-void vm_remove_fe (void *frame)
+void remove_frame (void *frame)
 {
     struct list_elem *e;
     
