@@ -261,7 +261,8 @@ check_mem_validity (const void *ptr, size_t size)
 static void 
 check_ptr_validity (const void *ptr)
 {
-  if (ptr != NULL && is_user_vaddr (ptr) && pagedir_get_page (thread_current ()->pagedir, ptr) != NULL)
+  if (ptr != NULL && is_user_vaddr (ptr) 
+      && pagedir_get_page (thread_current ()->pagedir, ptr) != NULL)
     return;
   exit(-1);
   NOT_REACHED ();
@@ -367,11 +368,11 @@ get_opened_file_by_fd (int fd)
   NOT_REACHED ();
 }
 
+/* Attempt to load multiple pages */
 static bool try_load_multiple (const void *upage, unsigned size)
 {
-  void *p = upage;
-  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++, p += PGSIZE)
-    if (!try_load_page (p))
+  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
+    if (!try_load_page (upage + tmp * PGSIZE))
       return false;
   return try_load_page (upage + size);
 }
@@ -391,9 +392,8 @@ static bool try_load_page (const void *upage)
 /* Check writability of a segment from supplementary page table. */
 static bool is_seg_writable (const void *upage, unsigned size)
 {
-  void *p = upage;
-  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++, p += PGSIZE)
-    if (!is_writable (p))
+  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
+    if (!is_writable (upage + tmp * PGSIZE))
       return false;
   return is_writable (upage + size);
 }

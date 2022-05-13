@@ -27,21 +27,6 @@ void frame_table_init (void)
     lock_init (&evict_lock);
 }
 
-/* for debugging purpose only */
-struct frame* vm_get_fe (void *frame)
-{
-    for (struct list_elem *e = list_begin (&frame_table); e != list_end (&frame_table); e = list_next (e))
-    {
-        struct frame *f = list_entry (e, struct frame, elem);
-        if (f->frame == frame)
-        {
-            lock_release (&ft_lock);
-            return f;
-        }
-    }
-    return NULL;
-}
-
 /**
  * Get a frame from physical memory.
  * Automatically evict one if no space left.
@@ -85,7 +70,6 @@ add_frame (void *frame, struct spl_pe *pe)
     
     lock_acquire (&ft_lock);
     lock_acquire (&f->frame_lock);
-    ASSERT (vm_get_fe (frame) == NULL);
     list_push_back (&frame_table, &f->elem);
     lock_release (&ft_lock);
     return f;
@@ -147,13 +131,14 @@ static bool evict (struct frame *f, struct spl_pe *pe)
     uint32_t *page_table = f->thread->pagedir;
     struct spl_pe *prev_pe = f->spl_pe;
 
-    //printf ("thread %d: upage %x(%x == %x)\n", f->thread->tid, prev_pe->upage, pagedir_get_page (page_table, prev_pe->upage), f->frame);
     ASSERT (pagedir_get_page (page_table, prev_pe->upage) != NULL);
     ASSERT (pagedir_get_page (page_table, prev_pe->upage) == f->frame);
     ASSERT (pe != NULL && f != NULL);
     size_t slot = BITMAP_ERROR;
     /* If dirty, need swapping out */
-    if ((pagedir_is_dirty (page_table, prev_pe->upage) || prev_pe->type == PG_SWAP)
+    if ((pagedir_is_dirty (page_table, prev_pe->upage) 
+         || prev_pe->type == PG_SWAP)
+    /* If swapping out failed */
     && ((slot = swap_out (f->frame)) == BITMAP_ERROR))
         return false;
         
@@ -174,7 +159,9 @@ static bool evict (struct frame *f, struct spl_pe *pe)
 
     return true;
 }
+/* helper functions */
 
+/* previous frame in a circular queue */
 static struct list_elem* next_frame (struct list_elem* frame_pt)
 {
     if (frame_pt == NULL)
@@ -185,22 +172,11 @@ static struct list_elem* next_frame (struct list_elem* frame_pt)
          : frame_pt;
 }
 
+/* next frame in a circular queue */
 static struct list_elem* prev_frame (struct list_elem* frame_pt)
 {
     ASSERT (frame_pt != NULL);
     if (frame_pt == list_head (&frame_table))
         frame_pt = list_end (&frame_table);
     return list_prev (frame_pt);
-}
-
-void debug_check_clear (void)
-{
-    lock_acquire (&ft_lock);
-    struct thread *cur = thread_current ();
-    for (struct list_elem *e = list_begin (&frame_table); e != list_end (&frame_table); e = list_next (e))
-    {
-        struct frame *f = list_entry (e, struct frame, elem);
-        ASSERT (f->thread != cur);
-    }
-    lock_release (&ft_lock);
 }

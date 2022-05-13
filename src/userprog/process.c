@@ -177,7 +177,6 @@ process_create (void)
   p->free_self = false;
 
   hash_init (&p->spl_page_table, hash_spl_pe, hash_less_spl_pe, NULL);
-  lock_init (&p->spl_pt_lock);
   return p;  
 }
 
@@ -233,11 +232,11 @@ process_exit (void)
          directory before destroying the process's page
          directory, or our active page directory will be one
          that's been freed (and cleared). */
+      /* must not do eviction when clearing page table */
       lock_acquire (&evict_lock);
       cur->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
-      //debug_check_clear ();
       lock_release (&evict_lock);
     }
 
@@ -347,9 +346,7 @@ free_process (struct process *p)
   lock_release (&file_lock);
   
   /* remove the frames occupied from frame table */
-  //lock_acquire (&p->spl_pt_lock);
   hash_destroy (&p->spl_page_table, hash_free_spl_pe);
-  //lock_release (&p->spl_pt_lock);
 
   /* free the process. */
   free (p);
@@ -542,8 +539,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 }
 
 /** load() helpers. */
-
-//static bool install_page (void *upage, void *kpage, bool writable);
 
 /** Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */

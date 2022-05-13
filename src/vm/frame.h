@@ -5,19 +5,18 @@
 #include "threads/thread.h"
 #include "vm/splpagetable.h"
 
+/* frame entry, or FE */
 struct frame{
-    void *frame;
-    tid_t tid;
-    struct spl_pe *spl_pe;
-    struct thread *thread;
-    struct list_elem elem;
-    struct lock frame_lock;
+    void *frame;            /* the frame this FE represents */
+    tid_t tid;              /* TID of the thread holding the frame */
+    struct spl_pe *spl_pe;  /* the SPE of this frame */
+    struct thread *thread;  /* the thread holding this frame */
+    struct list_elem elem;  /* list elem */
+    struct lock frame_lock; /* lock for frame loading */
 };
-
 struct lock evict_lock;
+
 void frame_table_init (void);
 void remove_frame (void*);
 struct frame* get_frame (struct spl_pe*);
-struct frame* vm_get_fe (void*);
-void debug_check_clear (void);
 #endif

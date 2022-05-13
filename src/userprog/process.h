@@ -28,7 +28,6 @@ struct process {
     struct list opened_files;           /**< Opened file list. */
     int next_fd;                        /**< Next fd assigned. */
     struct hash spl_page_table;
-    struct lock spl_pt_lock;
 };
 
 void process_init (void);
