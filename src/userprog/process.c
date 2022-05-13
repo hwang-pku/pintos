@@ -20,6 +20,7 @@
 #include "threads/vaddr.h"
 
 #include "vm/splpagetable.h"
+#include "vm/frame.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -220,6 +221,25 @@ process_exit (void)
   
   list_remove (&pcur->all_elem);
 
+  //lock_acquire (&evict_lock);
+
+  /* Destroy the current process's page directory and switch back
+     to the kernel-only page directory. */
+  pd = cur->pagedir;
+  if (pd != NULL) 
+    {
+      /* Correct ordering here is crucial.  We must set
+         cur->pagedir to NULL before switching page directories,
+         so that a timer interrupt can't switch back to the
+         process page directory.  We must activate the base page
+         directory before destroying the process's page
+         directory, or our active page directory will be one
+         that's been freed (and cleared). */
+      cur->pagedir = NULL;
+      pagedir_activate (NULL);
+      pagedir_destroy (pd);
+    }
+
     /* Free the resources occupied by dead childs. */
   while (!list_empty(&pcur->childs))  
   {
@@ -243,23 +263,6 @@ process_exit (void)
     lock_release (&file_lock);
   }
 
-  /* Destroy the current process's page directory and switch back
-     to the kernel-only page directory. */
-  pd = cur->pagedir;
-  if (pd != NULL) 
-    {
-      /* Correct ordering here is crucial.  We must set
-         cur->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-      cur->pagedir = NULL;
-      pagedir_activate (NULL);
-      pagedir_destroy (pd);
-    }
-
   /* should be put here so frame could always refer to spl_pe */
   /* If set to free_self, reap this process. */
   if (pcur->free_self)
@@ -270,7 +273,7 @@ process_exit (void)
     pcur->running=false;
     sema_up (&pcur->wait_for_process);
   }
-
+  //lock_release (&evict_lock);
 }
 
 /** Sets up the CPU for running user code in the current
@@ -344,7 +347,9 @@ free_process (struct process *p)
   lock_release (&file_lock);
   
   /* remove the frames occupied from frame table */
+  //lock_acquire (&p->spl_pt_lock);
   hash_destroy (&p->spl_page_table, hash_free_spl_pe);
+  //lock_release (&p->spl_pt_lock);
 
   /* free the process. */
   free (p);
@@ -533,7 +538,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  //file_close (file);
   return success;
 }
 
@@ -624,25 +628,6 @@ load_segment (struct file *file, off_t offset, uint8_t *upage,
       add_spl_pe (type, pt, file, offset, 
                   upage, page_read_bytes, page_zero_bytes, writable);
       
-      /*
-      uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
-        return false;
-
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      if (!install_page (upage, kpage, writable)) 
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-        */
-
       /* Advance. */
       offset += page_read_bytes;
       read_bytes -= page_read_bytes;
@@ -657,12 +642,6 @@ load_segment (struct file *file, off_t offset, uint8_t *upage,
 static bool
 setup_stack (void **esp) 
 {
-  /*
-  uint8_t *kpage;
-  bool success = false;
-
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  */
   struct hash *pt = &process_current ()->spl_page_table;
   
   /* Add stack page onto supplementary page table. */
@@ -672,33 +651,4 @@ setup_stack (void **esp)
   /* Load page to allow for argument passing. */
   *esp = PHYS_BASE;
   return load_page (((uint8_t *)PHYS_BASE) - PGSIZE);
-  /*if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
-    }
-  return success;*/
 }
-
-/** Adds a mapping from user virtual address UPAGE to kernel
-   virtual address KPAGE to the page table.
-   If WRITABLE is true, the user process may modify the page;
-   otherwise, it is read-only.
-   UPAGE must not already be mapped.
-   KPAGE should probably be a page obtained from the user pool
-   with palloc_get_page().
-   Returns true on success, false if UPAGE is already mapped or
-   if memory allocation fails. 
-static bool
-install_page (void *upage, void *kpage, bool writable)
-{
-  struct thread *t = thread_current ();
-
-  Verify that there's not already a page at that virtual
-     address, then map our page there. 
-  return (pagedir_get_page (t->pagedir, upage) == NULL
-          && pagedir_set_page (t->pagedir, upage, kpage, writable));
-}*/

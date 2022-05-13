@@ -161,13 +161,10 @@ page_fault (struct intr_frame *f)
   /* privacy violation / null pointer */
   if (fault_addr == NULL || !is_user_vaddr(fault_addr))
   {
-   /*
-    if(fault_addr == NULL)
+    /*if(fault_addr == NULL)
       printf ("Page fault dereferencing a NULL pointer\n");
     else
-      printf ("Page fault due to accessing kernel region\n");
-   */
-     
+      printf ("Page fault due to accessing kernel region\n");*/
     kill (f);
     return ;
   }

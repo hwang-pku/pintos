@@ -2,8 +2,10 @@
 #include <bitmap.h>
 #include <debug.h>
 #include "devices/block.h"
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "threads/synch.h"
-#define SECTOR_PER_PAGE 4096 / BLOCK_SECTOR_SIZE
+#define SECTOR_PER_PAGE (4096 / BLOCK_SECTOR_SIZE)
 
 static struct block *swap_device;
 static struct bitmap *map;
@@ -27,10 +29,12 @@ void swap_init (void)
  */
 size_t swap_out (void *kpage)
 {
+    ASSERT (pg_ofs (kpage) == 0);
     lock_acquire (&swap_lock);
     size_t slot = bitmap_scan_and_flip (map, 0, 1, false);
     if (slot == BITMAP_ERROR)
     {
+        printf("errored");
         lock_release (&swap_lock);
         return BITMAP_ERROR;
     }
@@ -47,8 +51,9 @@ size_t swap_out (void *kpage)
 void swap_in (size_t slot, void *kpage)
 {
     // Assert that the given slot is not empty
-    ASSERT (bitmap_test (map, slot));
     lock_acquire (&swap_lock);
+    ASSERT (bitmap_test (map, slot));
+    ASSERT (pg_ofs (kpage) == 0);
     for (size_t i = 0; i < SECTOR_PER_PAGE; i++)
         block_read (swap_device, slot * SECTOR_PER_PAGE + i,
                     kpage + i * BLOCK_SECTOR_SIZE);

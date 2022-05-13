@@ -43,17 +43,20 @@ void hash_free_spl_pe (struct hash_elem *e, void *aux UNUSED)
  * Load page at UPAGE on page table
  * Could be stack or file
  * Could be in swap, demand zero or simply needs to read from file
- * If no frame is available, try to do eviction in palloc_get_page
+ * If no frame is available, try to do eviction
  */
 bool load_page (uint8_t *upage)
 {
     ASSERT (pg_ofs (upage) == 0);
     struct hash *spl_pt = &process_current ()->spl_page_table;
+    //struct lock *spl_pt_lock = &process_current ()->spl_pt_lock;
+    //lock_acquire (spl_pt_lock);
     struct spl_pe *pe = find_spl_pe (spl_pt, upage);
     /* If upage not in spt */
     if (pe == NULL)
     {
-        //printf ("load_page: page not in supplementary page table\n");
+        printf ("load_page: page not in supplementary page table\n");
+        //lock_release (spl_pt_lock);
         /* It could be that upage is a stack page not allocated
            If out of valid stack space */
         return false;
@@ -61,32 +64,33 @@ bool load_page (uint8_t *upage)
     ASSERT (pe->upage == upage);
 
     /* If access issues */
-    if (pe->present && pe->writable == false)
+    ASSERT (pe->present == (pagedir_get_page (thread_current()->pagedir, pe->upage) != NULL))
+    if (pe->present)
         return false;
 
+    /* pe is the supplementary page entry that triggered PF */
     uint8_t *kpage = get_frame (pe);
     if (kpage == NULL)
     {
-        //printf ("load_page: page allocation failed\n");
-        //palloc_free_page (kpage);
+        printf ("load_page: page allocation failed\n");
+        //lock_release (spl_pt_lock);
         return false;
     }
+
+    //printf ("load_page: page allocation success\n");
     ASSERT (pg_ofs (kpage) == 0);
     ASSERT (!pe->present);
     pe->kpage = kpage;
+    printf ("thread %d: %x gets %x\n", thread_current ()->tid, pe->upage, kpage);
 
     /* If page is in swap */
     if (pe->type == PG_SWAP)
-    {
-        //PANIC ("load_page: swap not implemented");
         swap_in (pe->slot, kpage);
-    }
     else
     {
         /* Load this page. */
         if (pe->type == PG_MISC || pe->type == PG_FILE)
         {
-            //printf ("%d+%d=%d\n", pe->read_bytes, pe->zero_bytes, PGSIZE);
             ASSERT (pe->file != NULL);
             ASSERT (pe->read_bytes + pe->zero_bytes == PGSIZE);
             lock_acquire (&file_lock);
@@ -94,23 +98,24 @@ bool load_page (uint8_t *upage)
             if (file_read (pe->file, kpage, pe->read_bytes) != (int) pe->read_bytes)
             {
                 lock_release (&file_lock);
-                //printf ("load_page: unable to read file for required bytes");
+                //lock_release (spl_pt_lock);
                 palloc_free_page (kpage);
                 return false; 
             }
             lock_release (&file_lock);
         }
         memset (kpage + pe->read_bytes, 0, pe->zero_bytes);
-    
-        /* Add the page to the process's address space. */
-        if (!install_page (upage, kpage, pe->writable)) 
-        {
-            //printf ("load_page: page installation failed\n");
-            palloc_free_page (kpage);
-            return false; 
-        }
+    }
+
+    /* Add the page to the process's address space. */
+    if (!install_page (upage, kpage, pe->writable)) 
+    {
+        palloc_free_page (kpage);
+        //lock_release (spl_pt_lock);
+        return false; 
     }
     pe->present = true;
+    //lock_release(spl_pt_lock);
     return true;
 }
 
@@ -131,16 +136,16 @@ bool add_spl_pe (enum page_type type, struct hash *spl_pt, struct file *file, of
     pe->present = false;
     pe->slot = -1;
 
-    struct lock *spl_pt_lock = &thread_current ()->process->spl_pt_lock;
-    lock_acquire (spl_pt_lock);
+    //struct lock *spl_pt_lock = &thread_current ()->process->spl_pt_lock;
+    //lock_acquire (spl_pt_lock);
     if (hash_insert (spl_pt, &pe->elem) != NULL)
     {
         /* If entry already in supplementary page table */
-        lock_release (spl_pt_lock);
+    //    lock_release (spl_pt_lock);
         free (pe);
         return false;
     }
-    lock_release (spl_pt_lock);
+    //lock_release (spl_pt_lock);
     return true;
 }
 
@@ -152,17 +157,19 @@ bool is_writable (const void *upage)
     return pe -> writable;
 }
 
+/** Finds a supplementary page entry in HASH with the given UPAGE
+ *  Needs external synchronization.
+ */
 static struct spl_pe* find_spl_pe (struct hash *hash, uint8_t *upage)
 {
     struct spl_pe pe;
     pe.upage = upage;
-    struct lock *spl_pt_lock = &thread_current ()->process->spl_pt_lock;
-    lock_acquire (spl_pt_lock);
     struct hash_elem *p = hash_find(hash, &pe.elem);
-    lock_release (spl_pt_lock);
     return p ? hash_entry(p, struct spl_pe, elem) : NULL;
 }
 
+/** map a WRITABLE user page UPAGE to kernel frame KPAGE
+ */
 static bool
 install_page (void *upage, void *kpage, bool writable)
 {

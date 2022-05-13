@@ -16,18 +16,19 @@ static struct list_elem *evict_pt;
 static struct list_elem* next_frame (struct list_elem*);
 static struct list_elem* prev_frame (struct list_elem*);
 static bool evict (struct frame*, struct spl_pe*);
+static struct frame* get_frame_to_evict (void);
 
 void frame_table_init (void)
 {
     evict_pt = NULL;
     lock_init (&ft_lock);
     list_init (&frame_table);
+    lock_init (&evict_lock);
 }
 
 /* for debugging purpose only */
-static struct frame* vm_get_fe (void *frame)
+struct frame* vm_get_fe (void *frame)
 {
-    //lock_acquire (&ft_lock);
     for (struct list_elem *e = list_begin (&frame_table); e != list_end (&frame_table); e = list_next (e))
     {
         struct frame *f = list_entry (e, struct frame, elem);
@@ -37,7 +38,6 @@ static struct frame* vm_get_fe (void *frame)
             return f;
         }
     }
-    //lock_release (&ft_lock);
     return NULL;
 }
 
@@ -50,30 +50,25 @@ void* get_frame (struct spl_pe *pe)
     void *ret = palloc_get_page (PAL_USER);
     if (ret != NULL)
     {
+        printf ("palloc frame to %x at %x\n", pe->upage, ret);
         add_frame (ret, pe);      
         return ret;
     }
-    //return ret;
-    //PANIC ("Eviction not implemented yet.");
+    printf("needs eviction\n");
     
     struct frame *fe;
-    uint32_t *page_table;
     lock_acquire (&ft_lock);
-    ASSERT (!list_empty (&frame_table));
-    // BEWARE: deadlock here 
-    while (true)
     {
-        evict_pt = next_frame (evict_pt);
-        fe = list_entry (evict_pt, struct frame, elem);
-        page_table = fe->thread->pagedir;
-        if (!pagedir_is_accessed (page_table, fe->spl_pe->upage))
+        ASSERT (!list_empty (&frame_table));
+        lock_acquire (&evict_lock);
         {
-            ASSERT (ret == NULL);
-            if (evict (fe, fe->spl_pe))
+            printf("get frame to evict\n");
+            fe = get_frame_to_evict ();
+            /* If eviction successful */
+            if (evict (fe, pe))
                 ret = fe->frame;
-            break;
         }
-        pagedir_set_accessed (page_table, fe->spl_pe->upage, false);
+        lock_release (&evict_lock);
     }
     lock_release (&ft_lock);
     return ret;
@@ -81,6 +76,7 @@ void* get_frame (struct spl_pe *pe)
 
 /** 
  * Add frame entry into frame table. 
+ * Synchronization secure.
 */
 void add_frame (void *frame, struct spl_pe *pe)
 {
@@ -89,8 +85,10 @@ void add_frame (void *frame, struct spl_pe *pe)
     f->spl_pe = pe;
     f->tid = thread_current ()->tid;
     f->thread = thread_current ();
+    lock_init (&f->frame_lock);
     
     lock_acquire (&ft_lock);
+    //lock_acquire (&f->frame_lock);
     ASSERT (vm_get_fe (frame) == NULL);
     list_push_back (&frame_table, &f->elem);
     lock_release (&ft_lock);
@@ -120,41 +118,69 @@ void remove_frame (void *frame)
             return ;
         }
     }
+    lock_release (&ft_lock);
     PANIC ("vm_remove_fe: user frame not found in frame table");
 }
 
+static struct frame* get_frame_to_evict (void)
+{
+    uint32_t *page_table;
+    while (true)
+    {
+        evict_pt = next_frame (evict_pt);
+        struct frame *fe = list_entry (evict_pt, struct frame, elem);
+        page_table = fe->thread->pagedir;
+        /* Use CLOCK algorithm */
+        if (!pagedir_is_accessed (page_table, fe->spl_pe->upage))
+            return fe;
+        pagedir_set_accessed (page_table, fe->spl_pe->upage, false);
+    }
+    NOT_REACHED ();
+}
+
 /**
- * Swap out the given frame 
+ * Swap out the given frame
+ * F is the frame to evict, PE is the page entry to occupy F
  * Need to assume that ft_lock is held
  */
 static bool evict (struct frame *f, struct spl_pe *pe)
 {
     uint32_t *page_table = thread_current ()->pagedir;
-    
+    struct spl_pe *prev_pe = f->spl_pe;
+
+    ASSERT (pagedir_get_page (page_table, prev_pe->upage) == f->frame);
+    ASSERT (pe != NULL && f != NULL);
     /* If not dirty or read-only, no need to evict */
-    if (!pagedir_is_dirty (page_table, pe->upage))
+    if (!pagedir_is_dirty (page_table, prev_pe->upage) && prev_pe->type != PG_SWAP)
     {
-        pe->present = false;
+        prev_pe->present = false;
+        if (f->thread->pagedir != NULL)
+            pagedir_clear_page (f->thread->pagedir, prev_pe->upage);
+        f->spl_pe = pe;
+        f->thread = thread_current ();
+        f->tid = thread_current ()->tid;
+
         return true;
     }
 
+    printf ("Need swap\n");
     /* Save the page in swap device */
     size_t slot = swap_out (f->frame);
     if (slot == BITMAP_ERROR)
         return false;
         
     /* Change the corresponding spl_pe */
-    struct lock *spl_pt_lock = &f->thread->process->spl_pt_lock;
-    lock_acquire (spl_pt_lock);
-    pe->type = PG_SWAP;
-    pe->present = false;
-    pe->slot = slot;
-    lock_release (spl_pt_lock);
+    pagedir_clear_page (f->thread->pagedir, prev_pe->upage);
+    prev_pe->type = PG_SWAP;
+    prev_pe->present = false;
+    prev_pe->slot = slot;
+    prev_pe->kpage = NULL;
 
     // Change frame entry
     f->thread = thread_current ();
     f->spl_pe = pe;
     f->tid = thread_current ()->tid;
+
     return true;
 }
 
