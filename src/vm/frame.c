@@ -53,19 +53,19 @@ struct frame* get_frame (struct spl_pe *pe)
         return add_frame (ret, pe);      
     
     struct frame *fe = NULL;
-    lock_acquire (&ft_lock);
+    lock_acquire (&evict_lock);
     {
-        ASSERT (!list_empty (&frame_table));
-        lock_acquire (&evict_lock);
+        lock_acquire (&ft_lock);
         {
+            ASSERT (!list_empty (&frame_table));
             fe = get_frame_to_evict ();
             /* If eviction successful */
             if (!evict (fe, pe))
                 fe = NULL;
         }
-        lock_release (&evict_lock);
+        lock_release (&ft_lock);
     }
-    lock_release (&ft_lock);
+    lock_release (&evict_lock);
     return fe;
 }
 
@@ -84,6 +84,7 @@ add_frame (void *frame, struct spl_pe *pe)
     lock_init (&f->frame_lock);
     
     lock_acquire (&ft_lock);
+    lock_acquire (&f->frame_lock);
     ASSERT (vm_get_fe (frame) == NULL);
     list_push_back (&frame_table, &f->elem);
     lock_release (&ft_lock);
@@ -125,10 +126,12 @@ static struct frame* get_frame_to_evict (void)
     {
         evict_pt = next_frame (evict_pt);
         struct frame *fe = list_entry (evict_pt, struct frame, elem);
+        lock_acquire (&fe->frame_lock);
         page_table = fe->thread->pagedir;
         /* Use CLOCK algorithm */
         if (!pagedir_is_accessed (page_table, fe->spl_pe->upage))
             return fe;
+        lock_release (&fe->frame_lock);
         pagedir_set_accessed (page_table, fe->spl_pe->upage, false);
     }
     NOT_REACHED ();
@@ -144,7 +147,7 @@ static bool evict (struct frame *f, struct spl_pe *pe)
     uint32_t *page_table = f->thread->pagedir;
     struct spl_pe *prev_pe = f->spl_pe;
 
-    printf ("thread %d: upage %x(%x == %x)\n", f->thread->tid, prev_pe->upage, pagedir_get_page (page_table, prev_pe->upage), f->frame);
+    //printf ("thread %d: upage %x(%x == %x)\n", f->thread->tid, prev_pe->upage, pagedir_get_page (page_table, prev_pe->upage), f->frame);
     ASSERT (pagedir_get_page (page_table, prev_pe->upage) != NULL);
     ASSERT (pagedir_get_page (page_table, prev_pe->upage) == f->frame);
     ASSERT (pe != NULL && f != NULL);
@@ -188,4 +191,16 @@ static struct list_elem* prev_frame (struct list_elem* frame_pt)
     if (frame_pt == list_head (&frame_table))
         frame_pt = list_end (&frame_table);
     return list_prev (frame_pt);
+}
+
+void debug_check_clear (void)
+{
+    lock_acquire (&ft_lock);
+    struct thread *cur = thread_current ();
+    for (struct list_elem *e = list_begin (&frame_table); e != list_end (&frame_table); e = list_next (e))
+    {
+        struct frame *f = list_entry (e, struct frame, elem);
+        ASSERT (f->thread != cur);
+    }
+    lock_release (&ft_lock);
 }

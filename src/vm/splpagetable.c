@@ -77,7 +77,7 @@ bool load_page (uint8_t *upage)
 
     ASSERT (!pe->present);
     pe->kpage = frame->frame;
-    printf ("thread %d: %x gets %x\n", thread_current ()->tid, pe->upage, frame->frame);
+    //printf ("thread %d: %x gets %x\n", thread_current ()->tid, pe->upage, frame->frame);
 
     /* Load the content of the frame */
     if (!load_frame (pe, frame->frame))
@@ -86,6 +86,7 @@ bool load_page (uint8_t *upage)
         goto done;
     }
 
+
     /* Add the page to the process's address space. */
     if (!install_page (upage, frame->frame, pe->writable)) 
     {
@@ -93,6 +94,7 @@ bool load_page (uint8_t *upage)
         goto done;
     }
     pe->present = true;
+    lock_release (&frame->frame_lock);
     success = true;
 done:
     return success;

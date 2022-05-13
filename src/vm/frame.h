@@ -19,4 +19,5 @@ void frame_table_init (void);
 void remove_frame (void*);
 struct frame* get_frame (struct spl_pe*);
 struct frame* vm_get_fe (void*);
+void debug_check_clear (void);
 #endif
