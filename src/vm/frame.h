@@ -16,8 +16,7 @@ struct frame{
 
 struct lock evict_lock;
 void frame_table_init (void);
-void add_frame (void*, struct spl_pe*);
 void remove_frame (void*);
-void* get_frame (struct spl_pe*);
+struct frame* get_frame (struct spl_pe*);
 struct frame* vm_get_fe (void*);
 #endif

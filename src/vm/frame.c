@@ -17,6 +17,7 @@ static struct list_elem* next_frame (struct list_elem*);
 static struct list_elem* prev_frame (struct list_elem*);
 static bool evict (struct frame*, struct spl_pe*);
 static struct frame* get_frame_to_evict (void);
+static struct frame* add_frame (void*, struct spl_pe*);
 
 void frame_table_init (void)
 {
@@ -45,40 +46,35 @@ struct frame* vm_get_fe (void *frame)
  * Get a frame from physical memory.
  * Automatically evict one if no space left.
  */
-void* get_frame (struct spl_pe *pe)
+struct frame* get_frame (struct spl_pe *pe)
 {
     void *ret = palloc_get_page (PAL_USER);
     if (ret != NULL)
-    {
-        printf ("palloc frame to %x at %x\n", pe->upage, ret);
-        add_frame (ret, pe);      
-        return ret;
-    }
-    printf("needs eviction\n");
+        return add_frame (ret, pe);      
     
-    struct frame *fe;
+    struct frame *fe = NULL;
     lock_acquire (&ft_lock);
     {
         ASSERT (!list_empty (&frame_table));
         lock_acquire (&evict_lock);
         {
-            printf("get frame to evict\n");
             fe = get_frame_to_evict ();
             /* If eviction successful */
-            if (evict (fe, pe))
-                ret = fe->frame;
+            if (!evict (fe, pe))
+                fe = NULL;
         }
         lock_release (&evict_lock);
     }
     lock_release (&ft_lock);
-    return ret;
+    return fe;
 }
 
 /** 
  * Add frame entry into frame table. 
  * Synchronization secure.
 */
-void add_frame (void *frame, struct spl_pe *pe)
+static struct frame*
+add_frame (void *frame, struct spl_pe *pe)
 {
     struct frame *f = malloc (sizeof (struct frame));
     f->frame = frame;
@@ -88,10 +84,10 @@ void add_frame (void *frame, struct spl_pe *pe)
     lock_init (&f->frame_lock);
     
     lock_acquire (&ft_lock);
-    //lock_acquire (&f->frame_lock);
     ASSERT (vm_get_fe (frame) == NULL);
     list_push_back (&frame_table, &f->elem);
     lock_release (&ft_lock);
+    return f;
 }
 
 /**
@@ -145,35 +141,27 @@ static struct frame* get_frame_to_evict (void)
  */
 static bool evict (struct frame *f, struct spl_pe *pe)
 {
-    uint32_t *page_table = thread_current ()->pagedir;
+    uint32_t *page_table = f->thread->pagedir;
     struct spl_pe *prev_pe = f->spl_pe;
 
+    printf ("thread %d: upage %x(%x == %x)\n", f->thread->tid, prev_pe->upage, pagedir_get_page (page_table, prev_pe->upage), f->frame);
+    ASSERT (pagedir_get_page (page_table, prev_pe->upage) != NULL);
     ASSERT (pagedir_get_page (page_table, prev_pe->upage) == f->frame);
     ASSERT (pe != NULL && f != NULL);
-    /* If not dirty or read-only, no need to evict */
-    if (!pagedir_is_dirty (page_table, prev_pe->upage) && prev_pe->type != PG_SWAP)
-    {
-        prev_pe->present = false;
-        if (f->thread->pagedir != NULL)
-            pagedir_clear_page (f->thread->pagedir, prev_pe->upage);
-        f->spl_pe = pe;
-        f->thread = thread_current ();
-        f->tid = thread_current ()->tid;
-
-        return true;
-    }
-
-    printf ("Need swap\n");
-    /* Save the page in swap device */
-    size_t slot = swap_out (f->frame);
-    if (slot == BITMAP_ERROR)
+    size_t slot = BITMAP_ERROR;
+    /* If dirty, need swapping out */
+    if ((pagedir_is_dirty (page_table, prev_pe->upage) || prev_pe->type == PG_SWAP)
+    && ((slot = swap_out (f->frame)) == BITMAP_ERROR))
         return false;
         
     /* Change the corresponding spl_pe */
-    pagedir_clear_page (f->thread->pagedir, prev_pe->upage);
-    prev_pe->type = PG_SWAP;
+    if (slot != BITMAP_ERROR)
+    {
+        prev_pe->type = PG_SWAP;
+        prev_pe->slot = slot;
+    }
+    pagedir_clear_page (page_table, prev_pe->upage);
     prev_pe->present = false;
-    prev_pe->slot = slot;
     prev_pe->kpage = NULL;
 
     // Change frame entry

@@ -221,8 +221,6 @@ process_exit (void)
   
   list_remove (&pcur->all_elem);
 
-  //lock_acquire (&evict_lock);
-
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -273,7 +271,6 @@ process_exit (void)
     pcur->running=false;
     sema_up (&pcur->wait_for_process);
   }
-  //lock_release (&evict_lock);
 }
 
 /** Sets up the CPU for running user code in the current

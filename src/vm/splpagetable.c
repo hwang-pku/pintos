@@ -18,6 +18,7 @@
 
 static struct spl_pe* find_spl_pe (struct hash*, uint8_t*);
 static bool install_page (void *, void *, bool);
+static bool load_frame ();
 
 unsigned hash_spl_pe (const struct hash_elem *e, void *aux UNUSED)
 {
@@ -48,76 +49,55 @@ void hash_free_spl_pe (struct hash_elem *e, void *aux UNUSED)
 bool load_page (uint8_t *upage)
 {
     ASSERT (pg_ofs (upage) == 0);
+    bool success = false;
     struct hash *spl_pt = &process_current ()->spl_page_table;
-    //struct lock *spl_pt_lock = &process_current ()->spl_pt_lock;
-    //lock_acquire (spl_pt_lock);
     struct spl_pe *pe = find_spl_pe (spl_pt, upage);
     /* If upage not in spt */
     if (pe == NULL)
     {
         printf ("load_page: page not in supplementary page table\n");
-        //lock_release (spl_pt_lock);
         /* It could be that upage is a stack page not allocated
            If out of valid stack space */
-        return false;
+        goto done;
     }
     ASSERT (pe->upage == upage);
 
     /* If access issues */
     ASSERT (pe->present == (pagedir_get_page (thread_current()->pagedir, pe->upage) != NULL))
     if (pe->present)
-        return false;
+        goto done;
 
     /* pe is the supplementary page entry that triggered PF */
-    uint8_t *kpage = get_frame (pe);
-    if (kpage == NULL)
+    struct frame* frame = get_frame (pe);
+    if (frame == NULL)
     {
         printf ("load_page: page allocation failed\n");
-        //lock_release (spl_pt_lock);
-        return false;
+        goto done;
     }
 
-    //printf ("load_page: page allocation success\n");
-    ASSERT (pg_ofs (kpage) == 0);
     ASSERT (!pe->present);
-    pe->kpage = kpage;
-    printf ("thread %d: %x gets %x\n", thread_current ()->tid, pe->upage, kpage);
+    pe->kpage = frame->frame;
+    printf ("thread %d: %x gets %x\n", thread_current ()->tid, pe->upage, frame->frame);
 
-    /* If page is in swap */
-    if (pe->type == PG_SWAP)
-        swap_in (pe->slot, kpage);
-    else
+    /* Load the content of the frame */
+    if (!load_frame (pe, frame->frame))
     {
-        /* Load this page. */
-        if (pe->type == PG_MISC || pe->type == PG_FILE)
-        {
-            ASSERT (pe->file != NULL);
-            ASSERT (pe->read_bytes + pe->zero_bytes == PGSIZE);
-            lock_acquire (&file_lock);
-            file_seek (pe->file, pe->offset);
-            if (file_read (pe->file, kpage, pe->read_bytes) != (int) pe->read_bytes)
-            {
-                lock_release (&file_lock);
-                //lock_release (spl_pt_lock);
-                palloc_free_page (kpage);
-                return false; 
-            }
-            lock_release (&file_lock);
-        }
-        memset (kpage + pe->read_bytes, 0, pe->zero_bytes);
+        palloc_free_page (frame->frame);
+        goto done;
     }
 
     /* Add the page to the process's address space. */
-    if (!install_page (upage, kpage, pe->writable)) 
+    if (!install_page (upage, frame->frame, pe->writable)) 
     {
-        palloc_free_page (kpage);
-        //lock_release (spl_pt_lock);
-        return false; 
+        palloc_free_page (frame->frame);
+        goto done;
     }
     pe->present = true;
-    //lock_release(spl_pt_lock);
-    return true;
+    success = true;
+done:
+    return success;
 }
+
 
 bool add_spl_pe (enum page_type type, struct hash *spl_pt, struct file *file, off_t offset, 
                  uint8_t *upage, uint32_t read_bytes, uint32_t zero_bytes, bool writable)
@@ -181,3 +161,34 @@ install_page (void *upage, void *kpage, bool writable)
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
 
+/**
+ * Load the content of a frame according to the
+ * supplementary table entry it corresponds to.
+ * Needs frame table lock, frame lock and ste lock.
+ */
+static bool load_frame (struct spl_pe* pe, void *kpage)
+{
+    /* If page is in swap */
+    if (pe->type == PG_SWAP)
+        swap_in (pe->slot, kpage);
+    else
+    {
+        /* Load this page. */
+        if (pe->type == PG_MISC || pe->type == PG_FILE)
+        {
+            ASSERT (pe->file != NULL);
+            ASSERT (pe->read_bytes + pe->zero_bytes == PGSIZE);
+            lock_acquire (&file_lock);
+            file_seek (pe->file, pe->offset);
+            if (file_read (pe->file, kpage, pe->read_bytes) != (int) pe->read_bytes)
+            {
+                lock_release (&file_lock);
+                //palloc_free_page (kpage);
+                return false; 
+            }
+            lock_release (&file_lock);
+        }
+        memset (kpage + pe->read_bytes, 0, pe->zero_bytes);
+    }
+    return true;    
+}
