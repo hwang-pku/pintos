@@ -3,7 +3,7 @@
 #include <list.h>
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "vm/splpagetable.h"
+#include "vm/page.h"
 
 /* frame entry, or FE */
 struct frame{

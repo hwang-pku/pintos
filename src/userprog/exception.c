@@ -6,7 +6,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "vm/splpagetable.h"
+#include "vm/page.h"
 
 /** Number of page faults processed. */
 static long long page_fault_cnt;

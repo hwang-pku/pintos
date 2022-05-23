@@ -7,7 +7,7 @@
 #include "threads/palloc.h"
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
-#include "vm/splpagetable.h"
+#include "vm/page.h"
 #include "vm/swap.h"
 
 static struct list frame_table;

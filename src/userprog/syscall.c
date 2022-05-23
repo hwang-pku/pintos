@@ -15,7 +15,7 @@
 #include "userprog/pagedir.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
-#include "vm/splpagetable.h"
+#include "vm/page.h"
 #include "vm/frame.h"
 
 #define MAX_FD 129
