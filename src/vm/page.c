@@ -93,6 +93,28 @@ done:
     return success;
 }
 
+bool grow_stack (void* upage, const void* esp UNUSED)
+{
+    ASSERT (pg_ofs (upage) == 0);
+    bool success = false;
+    if (upage < PHYS_BASE - STACK_SIZE)
+    {
+        printf ("grow_stack: stack size limit exceeded\n", upage, PHYS_BASE, STACK_SIZE);
+        goto done;
+    }  
+    //if (upage < esp - 64)
+    //    goto done;
+    struct thread *pt = thread_current ();
+    for (void *p = upage; pagedir_get_page (pt->pagedir, p) == NULL; p += PGSIZE)
+        if (!add_spl_pe (PG_ZERO, &pt->process->spl_page_table, NULL, 0, 
+                         p, 0, PGSIZE, true))
+            goto done;
+    if (!load_page (upage, true))
+        goto done;
+    success = true;
+done:
+    return success;
+}
 
 bool add_spl_pe (enum page_type type, struct hash *spl_pt, struct file *file,
                  off_t offset, uint8_t *upage, uint32_t read_bytes, 
@@ -129,6 +151,8 @@ bool is_writable (const void *upage)
     ASSERT (pe != NULL);
     return pe -> writable;
 }
+
+/* Helper Functions */
 
 /** Finds a supplementary page entry in HASH with the given UPAGE
  *  Needs external synchronization.

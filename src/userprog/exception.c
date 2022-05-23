@@ -161,7 +161,9 @@ page_fault (struct intr_frame *f)
   /* privacy violation */
      || !is_user_vaddr(fault_addr)
   /* page loading failed */
-     || !load_page (pg_round_down (fault_addr), true))
+     || (!load_page (pg_round_down (fault_addr), true)
+  /* stack growth failed */ 
+     && !grow_stack (pg_round_down (fault_addr), f->esp)))
   {
    printf ("Page fault at %p: %s error %s page in %s context.\n",
           fault_addr,

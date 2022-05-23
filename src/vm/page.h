@@ -2,12 +2,14 @@
 #define __SPL_PT_H
 #include <hash.h>
 #include "filesys/off_t.h"
+#define STACK_SIZE (128*PGSIZE)
 
 enum page_type {
     PG_FILE,
     PG_ZERO,
     PG_MISC,
-    PG_SWAP
+    PG_SWAP,
+    PG_MMAP
 };
 
 /* supplementary page entry, or SPE */
@@ -31,6 +33,7 @@ bool hash_less_spl_pe (const struct hash_elem*,
 void hash_free_spl_pe (struct hash_elem*, void*);
 
 bool load_page (uint8_t*, bool);
+bool grow_stack (void*, const void*);
 bool add_spl_pe (enum page_type, struct hash*, struct file*, 
                  off_t, uint8_t*, uint32_t, uint32_t, bool);
 bool is_writable (const void*);
