@@ -30,7 +30,7 @@ bool hash_less_spl_pe (const struct hash_elem*,
                        const struct hash_elem*, void*);
 void hash_free_spl_pe (struct hash_elem*, void*);
 
-bool load_page (uint8_t*);
+bool load_page (uint8_t*, bool);
 bool add_spl_pe (enum page_type, struct hash*, struct file*, 
                  off_t, uint8_t*, uint32_t, uint32_t, bool);
 bool is_writable (const void*);

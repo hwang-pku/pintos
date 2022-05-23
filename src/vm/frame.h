@@ -13,10 +13,12 @@ struct frame{
     struct thread *thread;  /* the thread holding this frame */
     struct list_elem elem;  /* list elem */
     struct lock frame_lock; /* lock for frame loading */
+    bool evictable;         /* allow pinning down */
 };
 struct lock evict_lock;
 
 void frame_table_init (void);
 void remove_frame (void*);
-struct frame* get_frame (struct spl_pe*);
+struct frame* get_frame (struct spl_pe*, bool);
+void set_evictable (void*);
 #endif

@@ -47,7 +47,7 @@ void hash_free_spl_pe (struct hash_elem *e, void *aux UNUSED)
  * Could be in swap, demand zero or simply needs to read from file
  * If no frame is available, try to do eviction
  */
-bool load_page (uint8_t *upage)
+bool load_page (uint8_t *upage, bool evictable)
 {
     ASSERT (pg_ofs (upage) == 0);
     bool success = false;
@@ -65,7 +65,7 @@ bool load_page (uint8_t *upage)
         goto done;
 
     /* pe is the supplementary page entry that triggered PF */
-    struct frame* frame = get_frame (pe);
+    struct frame* frame = get_frame (pe, evictable);
     if (frame == NULL)
         goto done;
 

@@ -15,9 +15,10 @@ static struct lock ft_lock;
 static struct list_elem *evict_pt;
 static struct list_elem* next_frame (struct list_elem*);
 static struct list_elem* prev_frame (struct list_elem*);
-static bool evict (struct frame*, struct spl_pe*);
+static bool evict (struct frame*, struct spl_pe*, bool);
 static struct frame* get_frame_to_evict (void);
-static struct frame* add_frame (void*, struct spl_pe*);
+static struct frame* add_frame (void*, struct spl_pe*, bool);
+static struct frame* find_frame (void*);
 
 void frame_table_init (void)
 {
@@ -31,11 +32,11 @@ void frame_table_init (void)
  * Get a frame from physical memory.
  * Automatically evict one if no space left.
  */
-struct frame* get_frame (struct spl_pe *pe)
+struct frame* get_frame (struct spl_pe *pe, bool evictable)
 {
     void *ret = palloc_get_page (PAL_USER);
     if (ret != NULL)
-        return add_frame (ret, pe);      
+        return add_frame (ret, pe, evictable);      
     
     struct frame *fe = NULL;
     lock_acquire (&evict_lock);
@@ -45,7 +46,7 @@ struct frame* get_frame (struct spl_pe *pe)
             ASSERT (!list_empty (&frame_table));
             fe = get_frame_to_evict ();
             /* If eviction successful */
-            if (!evict (fe, pe))
+            if (!evict (fe, pe, evictable))
                 fe = NULL;
         }
         lock_release (&ft_lock);
@@ -59,13 +60,14 @@ struct frame* get_frame (struct spl_pe *pe)
  * Synchronization secure.
 */
 static struct frame*
-add_frame (void *frame, struct spl_pe *pe)
+add_frame (void *frame, struct spl_pe *pe, bool evictable)
 {
     struct frame *f = malloc (sizeof (struct frame));
     f->frame = frame;
     f->spl_pe = pe;
     f->tid = thread_current ()->tid;
     f->thread = thread_current ();
+    f->evictable = evictable;
     lock_init (&f->frame_lock);
     
     lock_acquire (&ft_lock);
@@ -113,7 +115,7 @@ static struct frame* get_frame_to_evict (void)
         lock_acquire (&fe->frame_lock);
         page_table = fe->thread->pagedir;
         /* Use CLOCK algorithm */
-        if (!pagedir_is_accessed (page_table, fe->spl_pe->upage))
+        if (fe->evictable && !pagedir_is_accessed (page_table, fe->spl_pe->upage))
             return fe;
         lock_release (&fe->frame_lock);
         pagedir_set_accessed (page_table, fe->spl_pe->upage, false);
@@ -126,7 +128,7 @@ static struct frame* get_frame_to_evict (void)
  * F is the frame to evict, PE is the page entry to occupy F
  * Need to assume that ft_lock is held
  */
-static bool evict (struct frame *f, struct spl_pe *pe)
+static bool evict (struct frame *f, struct spl_pe *pe, bool evictable)
 {
     uint32_t *page_table = f->thread->pagedir;
     struct spl_pe *prev_pe = f->spl_pe;
@@ -153,12 +155,23 @@ static bool evict (struct frame *f, struct spl_pe *pe)
     prev_pe->kpage = NULL;
 
     // Change frame entry
+    f->evictable = evictable;
     f->thread = thread_current ();
     f->spl_pe = pe;
     f->tid = thread_current ()->tid;
 
     return true;
 }
+
+void set_evictable (void *frame)
+{
+    lock_acquire (&ft_lock);
+    struct frame *fe = find_frame (frame);
+    if (fe != NULL)
+        fe->evictable = true;
+    lock_release (&ft_lock);
+}
+
 /* helper functions */
 
 /* previous frame in a circular queue */
@@ -179,4 +192,16 @@ static struct list_elem* prev_frame (struct list_elem* frame_pt)
     if (frame_pt == list_head (&frame_table))
         frame_pt = list_end (&frame_table);
     return list_prev (frame_pt);
+}
+
+static struct frame* find_frame (void *frame)
+{
+    for (struct list_elem *e = list_begin (&frame_table); 
+         e != list_end (&frame_table); e = list_next (e))
+    {
+        struct frame *f = list_entry (e, struct frame, elem);
+        if (f->frame == frame)
+            return f;
+    }
+    return NULL;
 }

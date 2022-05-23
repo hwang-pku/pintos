@@ -645,5 +645,5 @@ setup_stack (void **esp)
 
   /* Load page to allow for argument passing. */
   *esp = PHYS_BASE;
-  return load_page (((uint8_t *)PHYS_BASE) - PGSIZE);
+  return load_page (((uint8_t *)PHYS_BASE) - PGSIZE, true);
 }

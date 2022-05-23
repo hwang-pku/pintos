@@ -16,6 +16,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "vm/splpagetable.h"
+#include "vm/frame.h"
 
 #define MAX_FD 129
 #define FD_ERROR -1
@@ -40,12 +41,13 @@ static unsigned tell (int fd);
 static void close (int fd);
 
 static struct opened_file* get_opened_file_by_fd (int);
-static void check_ptr_validity (const void *);
-static void check_mem_validity (const void *, size_t);
-static void check_str_validity (const char *);
-static bool try_load_page (const void *);
-static bool try_load_multiple (const void *, unsigned);
-static bool is_seg_writable (const void *, unsigned);
+static void check_ptr_validity (const void*);
+static void check_mem_validity (const void*, size_t);
+static void check_str_validity (const char*);
+static bool try_load_page (const void*);
+static bool try_load_multiple (const void*, unsigned);
+static bool is_seg_writable (const void*, unsigned);
+static void reset_evictability (const void*, unsigned);
 
 void
 syscall_init (void) 
@@ -194,7 +196,6 @@ open (const char *file)
 static int
 read (int fd, void *buffer, unsigned size)
 {
-  //check_ptr_validity (buffer);
   /* Install pages automatically */
   if (!try_load_multiple (buffer, size) || !is_seg_writable (buffer, size))
     exit (-1);
@@ -206,6 +207,7 @@ read (int fd, void *buffer, unsigned size)
     for (uint8_t ch = input_getc (); ch != '\r' && i < (uint8_t) size; 
          i++, ch = input_getc ())
       *(uint8_t*)(buffer + i) = ch;
+    reset_evictability (buffer, size);
     return i;
   }
 
@@ -214,6 +216,7 @@ read (int fd, void *buffer, unsigned size)
   lock_acquire (&file_lock);
   int real_size = file_read (of->file, buffer, size);
   lock_release (&file_lock);
+  reset_evictability (buffer, size);
   return real_size;
 }
 
@@ -225,7 +228,6 @@ read (int fd, void *buffer, unsigned size)
 static int
 write (int fd, const void *buffer, unsigned size)
 {
-  check_mem_validity (buffer, size);
   /* Install pages automatically */
   if (!try_load_multiple (buffer, size))
     exit (-1);
@@ -234,16 +236,21 @@ write (int fd, const void *buffer, unsigned size)
   if (fd == 1)  
   {
     putbuf ((const char*)buffer, size);
+    reset_evictability (buffer, size);
     return size;
   }
 
   struct opened_file *of = get_opened_file_by_fd (fd);
   if (of == NULL || of->file == NULL)
+  {
+    reset_evictability (buffer, size);
     return -1;
+  }
 
   lock_acquire (&file_lock);
   int real_size = file_write (of->file, buffer, size);
   lock_release (&file_lock);
+  reset_evictability (buffer, size);
   return real_size;
 }
 
@@ -386,7 +393,7 @@ static bool try_load_page (const void *upage)
   if (pagedir_get_page (thread_current ()->pagedir, upage) != NULL)
     return true;
   /* page not present */
-  return load_page (pg_round_down (upage));
+  return load_page (pg_round_down (upage), false);
 }
 
 /* Check writability of a segment from supplementary page table. */
@@ -396,4 +403,11 @@ static bool is_seg_writable (const void *upage, unsigned size)
     if (!is_writable (upage + tmp * PGSIZE))
       return false;
   return is_writable (upage + size);
+}
+
+static void reset_evictability (const void *buffer, unsigned size)
+{
+  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
+    set_evictable (pg_round_down (buffer + tmp * PGSIZE));   
+  set_evictable (pg_round_down (buffer + size));   
 }
