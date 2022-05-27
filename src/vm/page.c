@@ -16,7 +16,6 @@
 #include "vm/frame.h"
 #include "vm/swap.h"
 
-static struct spl_pe* find_spl_pe (struct hash*, uint8_t*);
 static bool install_page (void *, void *, bool);
 static bool load_frame (struct spl_pe*, void*);
 
@@ -55,14 +54,15 @@ bool load_page (uint8_t *upage, bool evictable)
     struct spl_pe *pe = find_spl_pe (spl_pt, upage);
     /* If upage not in spt */
     if (pe == NULL)
-        /* It could be that upage is a stack page not allocated
-           If out of valid stack space */
         goto done;
     ASSERT (pe->upage == upage);
 
     /* If access issues */
     if (pe->present)
+    {
+           printf("already present\n");
         goto done;
+}
 
     /* pe is the supplementary page entry that triggered PF */
     struct frame* frame = get_frame (pe, evictable);
@@ -78,7 +78,6 @@ bool load_page (uint8_t *upage, bool evictable)
         palloc_free_page (frame->frame);
         goto done;
     }
-
 
     /* Add the page to the process's address space. */
     if (!install_page (upage, frame->frame, pe->writable)) 
@@ -98,12 +97,9 @@ bool grow_stack (void* upage, const void* esp UNUSED)
     ASSERT (pg_ofs (upage) == 0);
     bool success = false;
     if (upage < PHYS_BASE - STACK_SIZE)
-    {
-        printf ("grow_stack: stack size limit exceeded\n", upage, PHYS_BASE, STACK_SIZE);
         goto done;
-    }  
-    //if (upage < esp - 64)
-    //    goto done;
+    if (upage <= esp - 4096)
+        goto done;
     struct thread *pt = thread_current ();
     for (void *p = upage; pagedir_get_page (pt->pagedir, p) == NULL; p += PGSIZE)
         if (!add_spl_pe (PG_ZERO, &pt->process->spl_page_table, NULL, 0, 
@@ -143,6 +139,42 @@ bool add_spl_pe (enum page_type type, struct hash *spl_pt, struct file *file,
     return true;
 }
 
+bool rm_spl_pe (uint8_t *upage)
+{
+    if (pg_ofs (upage) != 0)
+        return false;
+    
+    struct hash *spt = &process_current ()->spl_page_table;
+    struct spl_pe *pe = find_spl_pe (spt, upage);
+    if (! (pe != NULL && hash_delete (spt, &pe->elem) != NULL))
+        return false;
+    free (pe);
+    return true;
+}
+
+bool page_unmap (uint32_t *pd, uint8_t *upage)
+{
+    struct hash *spt = &process_current ()->spl_page_table;
+    struct spl_pe *pe = find_spl_pe (spt, upage);
+    ASSERT (pe != NULL);
+    if (pagedir_get_page (pd, upage) && pagedir_is_dirty (pd, upage))
+    {
+        /* Write back the memory content */
+        lock_acquire (&file_lock);
+        if ((uint32_t) file_write_at (pe->file, upage, pe->read_bytes, 
+                                    pe->offset) != pe->read_bytes)
+            return false;
+        lock_release (&file_lock);
+    }
+    /* Unmap the memory area */
+    palloc_free_page (pagedir_get_page (pd, upage));
+    pagedir_clear_page (pd, upage);
+    if (hash_delete (spt, &pe->elem) == NULL)
+        return false;
+    free (pe);
+    return true;
+}
+
 /* returns if a user page UPAGE is writable */
 bool is_writable (const void *upage)
 {
@@ -152,18 +184,18 @@ bool is_writable (const void *upage)
     return pe -> writable;
 }
 
-/* Helper Functions */
-
 /** Finds a supplementary page entry in HASH with the given UPAGE
  *  Needs external synchronization.
  */
-static struct spl_pe* find_spl_pe (struct hash *hash, uint8_t *upage)
+struct spl_pe* find_spl_pe (struct hash *hash, uint8_t *upage)
 {
     struct spl_pe pe;
     pe.upage = upage;
     struct hash_elem *p = hash_find(hash, &pe.elem);
     return p ? hash_entry(p, struct spl_pe, elem) : NULL;
 }
+
+/* Helper Functions */
 
 /** 
  * map a WRITABLE user page UPAGE to kernel frame KPAGE
@@ -192,11 +224,12 @@ static bool load_frame (struct spl_pe *pe, void *kpage)
     else
     {
         /* Load this page. */
-        if (pe->type == PG_MISC || pe->type == PG_FILE)
+        if (pe->type == PG_MISC || pe->type == PG_FILE || pe->type == PG_MMAP)
         {
             ASSERT (pe->file != NULL);
             ASSERT (pe->read_bytes + pe->zero_bytes == PGSIZE);
             lock_acquire (&file_lock);
+            off_t prev_pos = file_tell (pe->file);
             file_seek (pe->file, pe->offset);
             /* file read failed */
             if (file_read (pe->file, kpage, pe->read_bytes) 
@@ -205,6 +238,7 @@ static bool load_frame (struct spl_pe *pe, void *kpage)
                 lock_release (&file_lock);
                 return false; 
             }
+            file_seek (pe->file, prev_pos);
             lock_release (&file_lock);
         }
         memset (kpage + pe->read_bytes, 0, pe->zero_bytes);

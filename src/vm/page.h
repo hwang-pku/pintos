@@ -31,12 +31,15 @@ unsigned hash_spl_pe (const struct hash_elem*, void*);
 bool hash_less_spl_pe (const struct hash_elem*,
                        const struct hash_elem*, void*);
 void hash_free_spl_pe (struct hash_elem*, void*);
+struct spl_pe* find_spl_pe (struct hash*, uint8_t*);
 
 bool load_page (uint8_t*, bool);
 bool grow_stack (void*, const void*);
 bool add_spl_pe (enum page_type, struct hash*, struct file*, 
                  off_t, uint8_t*, uint32_t, uint32_t, bool);
+bool rm_spl_pe (uint8_t*);
 bool is_writable (const void*);
-void free_spl_pt (struct hash *);
+void free_spl_pt (struct hash*);
+bool page_unmap (uint32_t*, uint8_t*);
 
 #endif

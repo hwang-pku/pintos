@@ -32,6 +32,6 @@ enum
   };
 
 /** Numbers of parameters for each syscall. Defined in userprog/syscall.c */
-extern int syscall_param_num[13];
+extern int syscall_param_num[20];
 
 #endif /**< lib/syscall-nr.h */

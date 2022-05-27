@@ -17,12 +17,13 @@
 #include "filesys/file.h"
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/mmap.h"
 
 #define MAX_FD 129
 #define FD_ERROR -1
 
 /* The number of parameters required for each syscall. */
-int syscall_param_num[13] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1};
+int syscall_param_num[20] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1, 2, 1};
 
 static void syscall_handler (struct intr_frame *);
 
@@ -39,13 +40,15 @@ static int write (int fd, const void *buffer, unsigned size);
 static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
+static mapid_t mmap (int, void*);
+static void munmap (mapid_t);
 
 static struct opened_file* get_opened_file_by_fd (int);
 static void check_ptr_validity (const void*);
 static void check_mem_validity (const void*, size_t);
 static void check_str_validity (const char*);
+static bool check_page_validity (const void*, unsigned);
 static bool try_load_page (const void*);
-static bool try_load_multiple (const void*, unsigned);
 static bool is_seg_writable (const void*, unsigned);
 static void reset_evictability (const void*, unsigned);
 
@@ -96,6 +99,8 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_SEEK: seek (*(int*)args[0], *(unsigned*)args[1]); break;
     case SYS_TELL: f->eax = tell (*(int*)args[0]); break;
     case SYS_CLOSE: close (*(int*)args[0]); break;
+    case SYS_MMAP: f->eax = mmap (*(int*)args[0], *(void**)args[1]); break;
+    case SYS_MUNMAP: munmap (*(mapid_t*)args[0]); break;
     default: NOT_REACHED ();
   }
 }
@@ -330,6 +335,8 @@ static unsigned
 tell (int fd) 
 {
   struct opened_file *of = get_opened_file_by_fd (fd);
+  if (of == NULL)
+    return -1;
 
   lock_acquire (&file_lock);
   unsigned ret = file_tell(of->file);
@@ -350,6 +357,32 @@ close (int fd)
   file_close (of->file);
   lock_release (&file_lock);
   free (of);
+}
+
+/** Mmap a file specified by file descriptor FD to user address ADDR. */
+static mapid_t 
+mmap (int fd, void *addr)
+{
+  /* If addr is not page-aligned or fd == 0/1 or addr is 0 */
+  if (pg_ofs(addr) != 0 || fd < 2 || addr == 0)
+    return -1;
+
+  /* Check the validity of the file descriptor */
+  struct opened_file* file = get_opened_file_by_fd (fd);
+  if (file == NULL)
+    return -1;
+  
+  return map_file (file->file, addr);
+}
+
+void 
+munmap (mapid_t mapid)
+{
+  struct mmap_file *file = find_mmap_file (mapid);
+  if (file == NULL)
+    exit (-1);
+
+  unmap_file (file);
 }
 
 /** Get opened files by its fd in current process. */
@@ -376,9 +409,11 @@ get_opened_file_by_fd (int fd)
 }
 
 /* Attempt to load multiple pages */
-static bool try_load_multiple (const void *upage, unsigned size)
+bool try_load_multiple (const void *upage, unsigned size)
 {
-  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
+  if (size == 0)
+    return true;
+  for (unsigned tmp = 0; tmp < size / PGSIZE; tmp++)
     if (!try_load_page (upage + tmp * PGSIZE))
       return false;
   return try_load_page (upage + size);
@@ -399,7 +434,7 @@ static bool try_load_page (const void *upage)
 /* Check writability of a segment from supplementary page table. */
 static bool is_seg_writable (const void *upage, unsigned size)
 {
-  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
+  for (unsigned tmp = 0; tmp < size / PGSIZE; tmp++)
     if (!is_writable (upage + tmp * PGSIZE))
       return false;
   return is_writable (upage + size);
@@ -407,7 +442,17 @@ static bool is_seg_writable (const void *upage, unsigned size)
 
 static void reset_evictability (const void *buffer, unsigned size)
 {
-  for (unsigned tmp = 0; tmp < size/PGSIZE; tmp++)
+  for (unsigned tmp = 0; tmp <= size / PGSIZE; tmp++)
     set_evictable (pg_round_down (buffer + tmp * PGSIZE));   
   set_evictable (pg_round_down (buffer + size));   
+}
+
+static bool check_page_validity (const void *buffer, unsigned size)
+{
+  ASSERT (pg_ofs (buffer) == 0);
+  uint32_t *pd = thread_current ()->pagedir;  
+  for (unsigned tmp = 0; tmp < size / PGSIZE; tmp++)
+    if (pagedir_get_page (pd, buffer + tmp * PGSIZE))
+      return false;
+  return true;
 }

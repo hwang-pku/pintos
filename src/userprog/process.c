@@ -1,16 +1,21 @@
 #include "userprog/process.h"
+
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
+
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
@@ -21,6 +26,7 @@
 
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/mmap.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -124,7 +130,6 @@ start_process (void *file_name_)
     *(void **)(if_.esp+8) = if_.esp+12;
     *(int *)(if_.esp+4) = argc;
     *(void **)(if_.esp) = NULL;
-    //printf ("esp: %x\n", if_.esp);
   }
     
   if (success)
@@ -169,6 +174,7 @@ process_create (void)
   list_init (&p->childs);
   list_init (&p->opened_files);
   p->next_fd = 2;
+  p->next_id = 0;
 
   sema_init (&p->wait_for_process, 0);
   sema_init (&p->loading, 0);
@@ -177,6 +183,7 @@ process_create (void)
   p->free_self = false;
 
   hash_init (&p->spl_page_table, hash_spl_pe, hash_less_spl_pe, NULL);
+  hash_init (&p->mmap_table, hash_mmap_file, hash_less_mmap_file, NULL);
   return p;  
 }
 
@@ -219,6 +226,9 @@ process_exit (void)
   printf("%s: exit(%d)\n", cur->name, pcur->exit_status);
   
   list_remove (&pcur->all_elem);
+  
+  /* unmap all the mapped files */
+  unmap_mmap_table (&pcur->mmap_table);
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -347,6 +357,7 @@ free_process (struct process *p)
   
   /* remove the frames occupied from frame table */
   hash_destroy (&p->spl_page_table, hash_free_spl_pe);
+  hash_destroy (&p->mmap_table, hash_free_mmap_file);
 
   /* free the process. */
   free (p);

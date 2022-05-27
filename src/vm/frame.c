@@ -139,13 +139,24 @@ static bool evict (struct frame *f, struct spl_pe *pe, bool evictable)
     size_t slot = BITMAP_ERROR;
     /* If dirty, need swapping out */
     if ((pagedir_is_dirty (page_table, prev_pe->upage) 
-         || prev_pe->type == PG_SWAP)
+         || prev_pe->type == PG_SWAP) && (prev_pe->type != PG_MMAP)
     /* If swapping out failed */
     && ((slot = swap_out (f->frame)) == BITMAP_ERROR))
         return false;
-        
+
+    if ((pagedir_is_dirty (page_table, prev_pe->upage) 
+         && prev_pe->type == PG_MMAP))
+    {
+        lock_acquire (&file_lock);
+        bool flag = (file_write_at (f->spl_pe->file, f->frame, f->spl_pe->read_bytes, 
+                           f->spl_pe->offset) < f->spl_pe->read_bytes);
+        lock_release (&file_lock);
+        if (!flag)
+            return false;
+    }
+
     /* Change the corresponding spl_pe */
-    if (slot != BITMAP_ERROR)
+    if (slot != BITMAP_ERROR && prev_pe->type != PG_MMAP)
     {
         prev_pe->type = PG_SWAP;
         prev_pe->slot = slot;

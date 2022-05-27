@@ -6,7 +6,7 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include "userprog/syscall.h"
-typedef int pid_t;
+//typedef int pid_t;
 
 struct process {
     int exit_status;                    /**< Exit status. */
@@ -25,9 +25,11 @@ struct process {
     /** The corresponding executable file */
     struct file *executable;            
 
+    int next_id;                        /**< Next Mmap Id assigned */
     struct list opened_files;           /**< Opened file list. */
     int next_fd;                        /**< Next fd assigned. */
     struct hash spl_page_table;
+    struct hash mmap_table;
 };
 
 void process_init (void);
