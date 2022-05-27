@@ -59,10 +59,7 @@ bool load_page (uint8_t *upage, bool evictable)
 
     /* If access issues */
     if (pe->present)
-    {
-        printf("already present\n");
         goto done;
-    }
 
     /* pe is the supplementary page entry that triggered PF */
     struct frame* frame = get_frame (pe, evictable);

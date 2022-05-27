@@ -28,8 +28,8 @@ struct process {
     int next_id;                        /**< Next Mmap Id assigned */
     struct list opened_files;           /**< Opened file list. */
     int next_fd;                        /**< Next fd assigned. */
-    struct hash spl_page_table;
-    struct hash mmap_table;
+    struct hash spl_page_table;         /**< SPT */
+    struct hash mmap_table;             /**< The table for mmap entries */
 };
 
 void process_init (void);
