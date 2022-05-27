@@ -32,6 +32,9 @@ void hash_free_mmap_file (struct hash_elem *e, void *aux UNUSED)
     free (hash_entry (e, struct mmap_file, elem));
 }
 
+/**
+ * Map a file FILE to address ADDR 
+ */
 mapid_t map_file (struct file *file, void *addr)
 {
     lock_acquire (&file_lock);
@@ -59,6 +62,9 @@ mapid_t map_file (struct file *file, void *addr)
     return insert_mmap_file (file, addr);
 }
 
+/**
+ * Unmap a given file 
+ */
 void unmap_file (struct mmap_file *file)
 {
     struct hash *mmap_table = &process_current ()->mmap_table;
@@ -67,11 +73,18 @@ void unmap_file (struct mmap_file *file)
     free (file);
 }
 
+/**
+ * Unmap the whole mmap table
+ * NOTE: this function does not change the table 
+ */
 void unmap_mmap_table (struct hash *mmap_table)
 {
     hash_apply (mmap_table, hash_unmap_file);
 }
 
+/**
+ * Find the mmap file entry with the mmap id
+ */
 struct mmap_file* find_mmap_file (mapid_t mapid)
 {
     struct mmap_file f;
@@ -97,9 +110,6 @@ static void hash_unmap_file (struct hash_elem *e, void *aux UNUSED)
     off_t read_bytes = file_len;
     uint32_t *pd = thread_current ()->pagedir;
     
-    /* load and pin the pages */
-    //if (!try_load_multiple (file->addr, read_bytes))
-    //    PANIC ("try load multiple failed");
     /* write memory to file */
     while (read_bytes > 0) 
     {
@@ -120,6 +130,14 @@ static void hash_unmap_file (struct hash_elem *e, void *aux UNUSED)
     intr_set_level (old_level);
 }
 
+/**
+ * @brief 
+ * Insert a mmap file onto the process mmap table.
+ * @param file the file pointer
+ * @param addr start address
+ * @return mapid_t
+ * the newly generated mmap id
+ */
 static mapid_t insert_mmap_file (struct file *file, void *addr)
 {
     struct hash *mmap_table = &process_current ()->mmap_table;
@@ -132,10 +150,13 @@ static mapid_t insert_mmap_file (struct file *file, void *addr)
     return f->mapid;
 }
 
+/**
+ * Verify that the pages are not mapped
+ * @return true if page is valid
+ */
 static bool check_page_validity (const void *buffer, unsigned size)
 {
   ASSERT (pg_ofs (buffer) == 0);
-  //uint32_t *pd = thread_current ()->pagedir;  
   struct hash *spt = &process_current ()->spl_page_table;
   for (unsigned tmp = 0; tmp <= (size - 1) / PGSIZE; tmp++)
     if (find_spl_pe (spt, buffer + tmp * PGSIZE)) 

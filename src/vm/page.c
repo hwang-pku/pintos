@@ -60,9 +60,9 @@ bool load_page (uint8_t *upage, bool evictable)
     /* If access issues */
     if (pe->present)
     {
-           printf("already present\n");
+        printf("already present\n");
         goto done;
-}
+    }
 
     /* pe is the supplementary page entry that triggered PF */
     struct frame* frame = get_frame (pe, evictable);
@@ -98,10 +98,10 @@ bool grow_stack (void* upage, const void* esp UNUSED)
     bool success = false;
     if (upage < PHYS_BASE - STACK_SIZE)
         goto done;
-    if (upage <= esp - 4096)
+    if (upage < esp - 4096)
         goto done;
     struct thread *pt = thread_current ();
-    for (void *p = upage; pagedir_get_page (pt->pagedir, p) == NULL; p += PGSIZE)
+    for (void *p = upage; pagedir_get_page(pt->pagedir, p)==NULL; p += PGSIZE)
         if (!add_spl_pe (PG_ZERO, &pt->process->spl_page_table, NULL, 0, 
                          p, 0, PGSIZE, true))
             goto done;
@@ -111,6 +111,7 @@ bool grow_stack (void* upage, const void* esp UNUSED)
 done:
     return success;
 }
+
 
 bool add_spl_pe (enum page_type type, struct hash *spl_pt, struct file *file,
                  off_t offset, uint8_t *upage, uint32_t read_bytes, 

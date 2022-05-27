@@ -7,13 +7,13 @@
 
 /* frame entry, or FE */
 struct frame{
-    void *frame;            /* the frame this FE represents */
-    tid_t tid;              /* TID of the thread holding the frame */
-    struct spl_pe *spl_pe;  /* the SPE of this frame */
-    struct thread *thread;  /* the thread holding this frame */
-    struct list_elem elem;  /* list elem */
-    struct lock frame_lock; /* lock for frame loading */
-    bool evictable;         /* allow pinning down */
+    void *frame;            /**< the frame this FE represents */
+    tid_t tid;              /**< TID of the thread holding the frame */
+    struct spl_pe *spl_pe;  /**< the SPE of this frame */
+    struct thread *thread;  /**< the thread holding this frame */
+    struct list_elem elem;  /**< list elem */
+    struct lock frame_lock; /**< lock for frame loading */
+    bool evictable;         /**< allow pinning down */
 };
 struct lock evict_lock;
 

@@ -115,7 +115,8 @@ static struct frame* get_frame_to_evict (void)
         lock_acquire (&fe->frame_lock);
         page_table = fe->thread->pagedir;
         /* Use CLOCK algorithm */
-        if (fe->evictable && !pagedir_is_accessed (page_table, fe->spl_pe->upage))
+        if (fe->evictable && 
+            !pagedir_is_accessed (page_table, fe->spl_pe->upage))
             return fe;
         lock_release (&fe->frame_lock);
         pagedir_set_accessed (page_table, fe->spl_pe->upage, false);
@@ -137,19 +138,25 @@ static bool evict (struct frame *f, struct spl_pe *pe, bool evictable)
     ASSERT (pagedir_get_page (page_table, prev_pe->upage) == f->frame);
     ASSERT (pe != NULL && f != NULL);
     size_t slot = BITMAP_ERROR;
+    bool dirty = pagedir_is_dirty (page_table, prev_pe->upage);
+    /* Clear page now to avoid further modification*/
+    pagedir_clear_page (page_table, prev_pe->upage);
+    prev_pe->present = false;
+    prev_pe->kpage = NULL;
+
     /* If dirty, need swapping out */
-    if ((pagedir_is_dirty (page_table, prev_pe->upage) 
-         || prev_pe->type == PG_SWAP) && (prev_pe->type != PG_MMAP)
+    if ((dirty || prev_pe->type == PG_SWAP) && (prev_pe->type != PG_MMAP)
     /* If swapping out failed */
     && ((slot = swap_out (f->frame)) == BITMAP_ERROR))
         return false;
 
-    if ((pagedir_is_dirty (page_table, prev_pe->upage) 
-         && prev_pe->type == PG_MMAP))
+    if (dirty && prev_pe->type == PG_MMAP)
     {
         lock_acquire (&file_lock);
-        bool flag = (file_write_at (f->spl_pe->file, f->frame, f->spl_pe->read_bytes, 
-                           f->spl_pe->offset) < f->spl_pe->read_bytes);
+        bool flag = ((unsigned) file_write_at (prev_pe->file, f->frame, 
+                                               prev_pe->read_bytes,    
+                                               prev_pe->offset)
+                     < prev_pe->read_bytes);
         lock_release (&file_lock);
         if (!flag)
             return false;
@@ -161,9 +168,6 @@ static bool evict (struct frame *f, struct spl_pe *pe, bool evictable)
         prev_pe->type = PG_SWAP;
         prev_pe->slot = slot;
     }
-    pagedir_clear_page (page_table, prev_pe->upage);
-    prev_pe->present = false;
-    prev_pe->kpage = NULL;
 
     // Change frame entry
     f->evictable = evictable;

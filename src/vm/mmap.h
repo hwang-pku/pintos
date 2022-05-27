@@ -8,10 +8,10 @@
 typedef int mapid_t;
 
 struct mmap_file {
-    struct file *file;
-    struct hash_elem elem;
-    mapid_t mapid;
-    void *addr;
+    struct file *file;      /**< pointer to the file. */
+    struct hash_elem elem;  /**< hash element. */
+    mapid_t mapid;          /**< map id for this entry */
+    void *addr;             /**< mapping address */
 };
 unsigned hash_mmap_file (const struct hash_elem*, void*);
 bool hash_less_mmap_file (const struct hash_elem*, const struct hash_elem*, void*);

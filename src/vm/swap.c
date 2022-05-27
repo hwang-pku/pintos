@@ -50,8 +50,8 @@ size_t swap_out (void *kpage)
  */
 void swap_in (size_t slot, void *kpage)
 {
-    // Assert that the given slot is not empty
     lock_acquire (&swap_lock);
+    // Assert that the given slot is not empty
     ASSERT (bitmap_test (map, slot));
     ASSERT (pg_ofs (kpage) == 0);
     for (size_t i = 0; i < SECTOR_PER_PAGE; i++)
