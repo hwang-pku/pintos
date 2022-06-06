@@ -10,7 +10,7 @@
 
 /** Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
-#define DIRECT_BLOCK_NUM 125
+#define DIRECT_BLOCK_NUM 124
 #define INDIRECT_BLOCK_NUM (BLOCK_SECTOR_SIZE/4)
 #define MIN(x, y) ((x)<(y)?(x):(y))
 
@@ -19,6 +19,7 @@
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
+    bool dir;
     block_sector_t doubly_indirect_block;
     block_sector_t direct_blocks[DIRECT_BLOCK_NUM]; /**< Direct blocks. */
     off_t length;                       /**< File size in bytes. */
@@ -28,7 +29,7 @@ struct inode_disk
 static inline size_t bytes_to_sectors(off_t);
 static block_sector_t byte_to_sector (const struct inode*, off_t);
 
-static bool inode_allocate (struct inode_disk*, off_t);
+static bool inode_allocate (struct inode_disk*, off_t, bool);
 static bool inode_extend (struct inode_disk*, off_t);
 static bool inode_recur_extend (block_sector_t*, size_t, int);
 static void inode_free (struct inode_disk*);
@@ -44,7 +45,6 @@ struct inode
     int deny_write_cnt;                 /**< 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /**< Inode content. */
   };
-
 
 /** List of open inodes, so that opening a single inode twice
    returns the same `struct inode'. */
@@ -63,7 +63,7 @@ inode_init (void)
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool
-inode_create (block_sector_t sector, off_t length)
+inode_create (block_sector_t sector, off_t length, bool dir)
 {
   struct inode_disk *disk_inode = NULL;
   bool success = false;
@@ -78,7 +78,7 @@ inode_create (block_sector_t sector, off_t length)
   if (disk_inode != NULL)
     {
       //size_t sectors = bytes_to_sectors (length);
-      if (inode_allocate (disk_inode, length))
+      if (inode_allocate (disk_inode, length, dir))
         {
           filesys_cache_write (sector, disk_inode);
           /*if (sectors > 0) 
@@ -326,8 +326,9 @@ inode_deny_write (struct inode *inode)
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 }
 
-static bool inode_allocate (struct inode_disk *disk_inode, off_t length)
+static bool inode_allocate (struct inode_disk *disk_inode, off_t length, bool dir)
 {
+  disk_inode->dir = dir;
   disk_inode->length = length;
   disk_inode->magic = INODE_MAGIC;
   return inode_extend (disk_inode, length);
