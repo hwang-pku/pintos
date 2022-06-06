@@ -51,9 +51,9 @@ static bool format_filesys;
    overriding the defaults. */
 static const char *filesys_bdev_name;
 static const char *scratch_bdev_name;
-#ifdef VM
+//#ifdef VM
 static const char *swap_bdev_name;
-#endif
+//#endif
 #endif /**< FILESYS */
 
 /** -ul: Maximum number of pages to put into palloc's user pool. */
@@ -113,6 +113,7 @@ pintos_init (void)
   timer_init ();
   kbd_init ();
   input_init ();
+
 #ifdef USERPROG
   process_init ();
   exception_init ();
@@ -323,10 +324,10 @@ parse_options (char **argv)
         filesys_bdev_name = value;
       else if (!strcmp (name, "-scratch"))
         scratch_bdev_name = value;
-#ifdef VM
+//#ifdef VM
       else if (!strcmp (name, "-swap"))
         swap_bdev_name = value;
-#endif
+//#endif
 #endif
       else if (!strcmp (name, "-rs"))
         random_init (atoi (value));
