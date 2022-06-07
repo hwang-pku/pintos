@@ -41,8 +41,10 @@ static int write (int fd, const void *buffer, unsigned size);
 static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
+#ifdef VM
 static mapid_t mmap (int, void*);
 static void munmap (mapid_t);
+#endif
 static bool chdir (const char *);
 static bool mkdir (const char *);
 static bool readdir (int, char *);
@@ -54,9 +56,11 @@ static void check_ptr_validity (const void*);
 static void check_mem_validity (const void*, size_t);
 static void check_str_validity (const char*);
 static bool check_page_validity (const void*, unsigned);
+#ifdef VM
 static bool try_load_page (const void*);
 static bool is_seg_writable (const void*, unsigned);
 static void reset_evictability (const void*, unsigned);
+#endif
 
 void
 syscall_init (void) 
@@ -105,8 +109,10 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_SEEK: seek (*(int*)args[0], *(unsigned*)args[1]); break;
     case SYS_TELL: f->eax = tell (*(int*)args[0]); break;
     case SYS_CLOSE: close (*(int*)args[0]); break;
+#ifdef VM
     case SYS_MMAP: f->eax = mmap (*(int*)args[0], *(void**)args[1]); break;
     case SYS_MUNMAP: munmap (*(mapid_t*)args[0]); break;
+#endif
     case SYS_CHDIR: f->eax = chdir (*(char**)args[0]); break;
     case SYS_MKDIR: f->eax = mkdir (*(char**)args[0]); break;
     case SYS_READDIR: 
@@ -218,9 +224,13 @@ open (const char *file)
 static int
 read (int fd, void *buffer, unsigned size)
 {
+#ifdef VM
   /* Install pages automatically */
   if (!try_load_multiple (buffer, size) || !is_seg_writable (buffer, size))
     exit (-1);
+#else
+  check_mem_validity (buffer, size);
+#endif
 
   /* if STDIN, just read from the console. */
   if (fd == 0)
@@ -229,7 +239,9 @@ read (int fd, void *buffer, unsigned size)
     for (uint8_t ch = input_getc (); ch != '\r' && i < (uint8_t) size; 
          i++, ch = input_getc ())
       *(uint8_t*)(buffer + i) = ch;
+#ifdef VM
     reset_evictability (buffer, size);
+#endif
     return i;
   }
 
@@ -238,7 +250,9 @@ read (int fd, void *buffer, unsigned size)
   lock_acquire (&file_lock);
   int real_size = file_read (of->file, buffer, size);
   lock_release (&file_lock);
+#ifdef VM
   reset_evictability (buffer, size);
+#endif
   return real_size;
 }
 
@@ -250,29 +264,39 @@ read (int fd, void *buffer, unsigned size)
 static int
 write (int fd, const void *buffer, unsigned size)
 {
+#ifdef VM
   /* Install pages automatically */
   if (!try_load_multiple (buffer, size))
     exit (-1);
+#else
+  check_mem_validity (buffer, size);
+#endif
 
   /* if STDOUT, just write to the console. */
   if (fd == 1)  
   {
     putbuf ((const char*)buffer, size);
+#ifdef VM
     reset_evictability (buffer, size);
+#endif
     return size;
   }
 
   struct opened_file *of = get_opened_file_by_fd (fd);
   if (of == NULL || of->file == NULL)
   {
+#ifdef VM
     reset_evictability (buffer, size);
+#endif
     return -1;
   }
 
   lock_acquire (&file_lock);
   int real_size = file_write (of->file, buffer, size);
   lock_release (&file_lock);
+#ifdef VM
   reset_evictability (buffer, size);
+#endif
   return real_size;
 }
 
@@ -378,6 +402,7 @@ close (int fd)
   free (of);
 }
 
+#ifdef VM
 /** Mmap a file specified by file descriptor FD to user address ADDR. */
 static mapid_t 
 mmap (int fd, void *addr)
@@ -403,6 +428,7 @@ munmap (mapid_t mapid)
 
   unmap_file (file);
 }
+#endif
 
 static bool chdir (const char *dir)
 {
@@ -481,6 +507,7 @@ get_opened_file_by_fd (int fd)
   NOT_REACHED ();
 }
 
+#ifdef VM
 /* Attempt to load multiple pages */
 bool try_load_multiple (const void *upage, unsigned size)
 {
@@ -522,6 +549,7 @@ static void reset_evictability (const void *buffer, unsigned size)
     set_evictable (pg_round_down (buffer + tmp * PGSIZE));   
   set_evictable (pg_round_down (buffer + size));   
 }
+#endif
 
 static bool check_page_validity (const void *buffer, unsigned size)
 {

@@ -14,6 +14,8 @@ struct opened_file {
 
 void syscall_init (void);
 struct lock file_lock;
+#ifdef VM
 bool try_load_multiple (const void*, unsigned);
+#endif
 
 #endif /**< userprog/syscall.h */

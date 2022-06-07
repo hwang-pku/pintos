@@ -151,8 +151,10 @@ void
 palloc_free_page (void *page) 
 {
   /* remove frame entry if page is from user pool */
+#ifdef VM
   if (page_from_pool (&user_pool, page))
     remove_frame (page);  
+#endif
   palloc_free_multiple (page, 1);
 }
 

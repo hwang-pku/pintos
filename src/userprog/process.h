@@ -26,11 +26,14 @@ struct process {
     /** The corresponding executable file */
     struct file *executable;            
 
-    int next_id;                        /**< Next Mmap Id assigned */
     struct list opened_files;           /**< Opened file list. */
     int next_fd;                        /**< Next fd assigned. */
+#ifdef VM
+    int next_id;                        /**< Next Mmap Id assigned */
     struct hash spl_page_table;         /**< SPT */
     struct hash mmap_table;             /**< The table for mmap entries */
+#endif
+
     struct dir *cwd;                    /**< CWD of this process. */
 };
 

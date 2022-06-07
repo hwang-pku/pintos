@@ -31,6 +31,7 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static void free_process (struct process*);
+static bool install_page (void *, void *, bool);
 static struct list all_list;
 
 /** Sets up process system. */
@@ -174,7 +175,6 @@ process_create (void)
   list_init (&p->childs);
   list_init (&p->opened_files);
   p->next_fd = 2;
-  p->next_id = 0;
 
   sema_init (&p->wait_for_process, 0);
   sema_init (&p->loading, 0);
@@ -182,8 +182,11 @@ process_create (void)
   p->running = true;
   p->free_self = false;
 
+#ifdef VM
+  p->next_id = 0;
   hash_init (&p->spl_page_table, hash_spl_pe, hash_less_spl_pe, NULL);
   hash_init (&p->mmap_table, hash_mmap_file, hash_less_mmap_file, NULL);
+#endif
 
   if (!pintos_booted)
     p->cwd = NULL;
@@ -239,10 +242,10 @@ process_exit (void)
   
   list_remove (&pcur->all_elem);
   
-//#ifdef VM
+#ifdef VM
   /* unmap all the mapped files */
   unmap_mmap_table (&pcur->mmap_table);
-//#endif
+#endif
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -257,11 +260,15 @@ process_exit (void)
          directory, or our active page directory will be one
          that's been freed (and cleared). */
       /* must not do eviction when clearing page table */
+#ifdef VM
       lock_acquire (&evict_lock);
+#endif
       cur->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
+#ifdef VM
       lock_release (&evict_lock);
+#endif
     }
 
     /* Free the resources occupied by dead childs. */
@@ -369,9 +376,11 @@ free_process (struct process *p)
   /* don't allow write to executable here since we do it in process_exit */
   lock_release (&file_lock);
   
+#ifdef VM
   /* remove the frames occupied from frame table */
   hash_destroy (&p->spl_page_table, hash_free_spl_pe);
   hash_destroy (&p->mmap_table, hash_free_mmap_file);
+#endif
 
   /* free the process. */
   free (p);
@@ -631,8 +640,11 @@ load_segment (struct file *file, off_t offset, uint8_t *upage,
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (offset % PGSIZE == 0);
+#ifdef VM
   struct hash *pt = &process_current ()->spl_page_table;
+#endif
 
+  file_seek (file, offset);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -640,13 +652,34 @@ load_segment (struct file *file, off_t offset, uint8_t *upage,
          and zero the final PAGE_ZERO_BYTES bytes. */
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
+#ifdef VM
       enum page_type type = page_read_bytes == PGSIZE ? PG_FILE 
                           : (page_zero_bytes == PGSIZE ? PG_ZERO : PG_MISC);
-      
       /* Add a page to supplementary page table.
          Read from file when a page fault happens. */
       add_spl_pe (type, pt, file, offset, 
                   upage, page_read_bytes, page_zero_bytes, writable);
+#else
+      /* Get a page of memory. */
+      uint8_t *kpage = palloc_get_page (PAL_USER);
+      if (kpage == NULL)
+        return false;
+
+      /* Load this page. */
+      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+        {
+          palloc_free_page (kpage);
+          return false; 
+        }
+      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+      /* Add the page to the process's address space. */
+      if (!install_page (upage, kpage, writable)) 
+        {
+          palloc_free_page (kpage);
+          return false; 
+        }
+#endif
       
       /* Advance. */
       offset += page_read_bytes;
@@ -657,11 +690,13 @@ load_segment (struct file *file, off_t offset, uint8_t *upage,
   return true;
 }
 
+
 /** Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
 setup_stack (void **esp) 
 {
+#ifdef VM
   struct hash *pt = &process_current ()->spl_page_table;
   
   /* Add stack page onto supplementary page table. */
@@ -671,4 +706,33 @@ setup_stack (void **esp)
   /* Load page to allow for argument passing. */
   *esp = PHYS_BASE;
   return load_page (((uint8_t *)PHYS_BASE) - PGSIZE, true);
+#else
+  uint8_t *kpage;
+  bool success = false;
+
+  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  if (kpage != NULL) 
+    {
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+      if (success)
+        *esp = PHYS_BASE;
+      else
+        palloc_free_page (kpage);
+    }
+  return success;
+#endif
+}
+
+/** 
+ * map a WRITABLE user page UPAGE to kernel frame KPAGE
+ */
+static bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
