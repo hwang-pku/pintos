@@ -8,8 +8,5 @@ void filesys_cache_init (void);
 void filesys_cache_read (block_sector_t, void*);
 void filesys_cache_write (block_sector_t, const void*);
 void filesys_cache_close (void);
-//void filesys_cache_evict (block_sector_t);
-
-//bool filesys_cache_empty (block_sector_t);
 
 #endif

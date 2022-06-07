@@ -54,7 +54,6 @@ filesys_create (const char *name, off_t initial_size, bool is_dir)
   size_t len = strlen (name);
   char directory[len+1], filename[len+1];
   fsutil_parse_path (name, directory, filename);
-  //struct dir *dir = dir_open_root ();
   struct dir *dir = dir_open_path (directory);
   bool success = (dir != NULL
                   && free_map_allocate (1, &inode_sector)
@@ -80,7 +79,6 @@ filesys_open (const char *name)
   char directory[len+1], filename[len+1];
   fsutil_parse_path (name, directory, filename);
 
-  //struct dir *dir = dir_open_root ();
   struct dir *dir = dir_open_path (directory);
   struct inode *inode = NULL;
 
@@ -107,7 +105,6 @@ filesys_remove (const char *name)
   size_t len = strlen(name);
   char directory [len + 1], filename [len + 1];
   fsutil_parse_path (name, directory, filename);
-  //struct dir *dir = dir_open_root ();
   struct dir *dir = dir_open_path (directory);
   bool success = dir != NULL && dir_remove (dir, filename);
   dir_close (dir); 

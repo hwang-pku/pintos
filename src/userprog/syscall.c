@@ -24,7 +24,8 @@
 #define FD_ERROR -1
 
 /* The number of parameters required for each syscall. */
-int syscall_param_num[25] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1, 2, 1, 1, 1, 2, 1, 1};
+int syscall_param_num[25] = 
+{0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1, 2, 1, 1, 1, 2, 1, 1};
 
 static void syscall_handler (struct intr_frame *);
 
@@ -55,7 +56,6 @@ static struct opened_file* get_opened_file_by_fd (int);
 static void check_ptr_validity (const void*);
 static void check_mem_validity (const void*, size_t);
 static void check_str_validity (const char*);
-static bool check_page_validity (const void*, unsigned);
 #ifdef VM
 static bool try_load_page (const void*);
 static bool is_seg_writable (const void*, unsigned);
@@ -177,9 +177,7 @@ create (const char *file, unsigned initial_size)
   check_mem_validity (file, sizeof (const char*));
 
   /* Create the file. */
-  lock_acquire (&file_lock);
   bool ret = filesys_create (file, initial_size, false);
-  lock_release (&file_lock);
   return ret;
 }
 
@@ -192,9 +190,7 @@ open (const char *file)
   struct process *cur_process = process_current ();
 
   /* open the file in filesys. */
-  lock_acquire (&file_lock);
   struct file *tmp_f = filesys_open (file);
-  lock_release (&file_lock);
 
   if (tmp_f == NULL)
     return FD_ERROR;
@@ -247,9 +243,7 @@ read (int fd, void *buffer, unsigned size)
 
   struct opened_file *of = get_opened_file_by_fd (fd);
 
-  lock_acquire (&file_lock);
   int real_size = file_read (of->file, buffer, size);
-  lock_release (&file_lock);
 #ifdef VM
   reset_evictability (buffer, size);
 #endif
@@ -291,9 +285,7 @@ write (int fd, const void *buffer, unsigned size)
     return -1;
   }
 
-  lock_acquire (&file_lock);
   int real_size = file_write (of->file, buffer, size);
-  lock_release (&file_lock);
 #ifdef VM
   reset_evictability (buffer, size);
 #endif
@@ -340,9 +332,7 @@ static bool
 remove (const char *file) 
 {
   check_str_validity (file);
-  lock_acquire (&file_lock);
   bool ret = filesys_remove (file);
-  lock_release (&file_lock);
   return ret;
 }
 
@@ -354,9 +344,7 @@ filesize (int fd)
   if (file == NULL)
     return -1;
 
-  lock_acquire (&file_lock);
   int fz = file_length(file->file);
-  lock_release (&file_lock);
   return fz;
 }
 
@@ -366,9 +354,7 @@ seek (int fd, unsigned position)
 {
   struct opened_file *of = get_opened_file_by_fd (fd);
 
-  lock_acquire (&file_lock);
   file_seek (of->file, position);
-  lock_release (&file_lock);
 }
 
 /** Check where the file handle is at. */
@@ -379,9 +365,7 @@ tell (int fd)
   if (of == NULL)
     return -1;
 
-  lock_acquire (&file_lock);
   unsigned ret = file_tell(of->file);
-  lock_release (&file_lock);
   return ret;
 }
 
@@ -394,11 +378,9 @@ close (int fd)
   /* remove the file from fd table. */
   list_remove (&of->elem);
 
-  lock_acquire (&file_lock);
   file_close (of->file);
   if (of->dir != NULL)
     dir_close (of->dir);
-  lock_release (&file_lock);
   free (of);
 }
 
@@ -443,9 +425,7 @@ static bool chdir (const char *dir)
 static bool mkdir (const char *dir)
 {
   check_str_validity (dir);
-  lock_acquire (&file_lock);
   bool ret = filesys_create (dir, 0, true);
-  lock_release (&file_lock);
 
   return ret;
 }
@@ -453,34 +433,27 @@ static bool mkdir (const char *dir)
 static bool readdir (int fd, char *name)
 {
   bool success = false;
-  lock_acquire (&file_lock);
   struct opened_file *file = get_opened_file_by_fd (fd);
   struct inode *inode = file_get_inode (file->file);
   if (inode == NULL) goto done;
   if (!inode_is_dir (inode)) goto done;
   
   success = dir_readdir (file->dir, name);
-  //dir_close (dir);
 done:
-  lock_release (&file_lock);
   return success;
 }
 
 static bool isdir (int fd)
 {
-  lock_acquire (&file_lock);
   struct inode *inode = file_get_inode (get_opened_file_by_fd (fd)->file);
   bool ret = inode_is_dir (inode);
-  lock_release (&file_lock);
   return ret;
 }
 
 static int inumber (int fd)
 {
-  lock_acquire (&file_lock);
   struct inode *inode = file_get_inode (get_opened_file_by_fd (fd)->file);
   int inumber = inode_get_inumber (inode);
-  lock_release (&file_lock);
   return inumber;
 }
 
@@ -550,13 +523,3 @@ static void reset_evictability (const void *buffer, unsigned size)
   set_evictable (pg_round_down (buffer + size));   
 }
 #endif
-
-static bool check_page_validity (const void *buffer, unsigned size)
-{
-  ASSERT (pg_ofs (buffer) == 0);
-  uint32_t *pd = thread_current ()->pagedir;  
-  for (unsigned tmp = 0; tmp < size / PGSIZE; tmp++)
-    if (pagedir_get_page (pd, buffer + tmp * PGSIZE))
-      return false;
-  return true;
-}

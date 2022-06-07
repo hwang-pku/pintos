@@ -3,10 +3,11 @@
 #include <debug.h>
 #include <round.h>
 #include <string.h>
+#include "threads/synch.h"
+#include "threads/malloc.h"
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "filesys/cache.h"
-#include "threads/malloc.h"
 
 /** Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
@@ -19,15 +20,16 @@
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
-    bool dir;
-    block_sector_t doubly_indirect_block;
-    block_sector_t direct_blocks[DIRECT_BLOCK_NUM]; /**< Direct blocks. */
-    off_t length;                       /**< File size in bytes. */
-    unsigned magic;                     /**< Magic number. */
+    bool dir;                               /**< True if is directory */
+    block_sector_t doubly_indirect_block;   /**< Doubly indirect block. */
+    block_sector_t 
+    direct_blocks[DIRECT_BLOCK_NUM];        /**< Direct blocks. */
+    off_t length;                           /**< File size in bytes. */
+    unsigned magic;                         /**< Magic number. */
   };
 
 static inline size_t bytes_to_sectors(off_t);
-static block_sector_t byte_to_sector (const struct inode*, off_t);
+static block_sector_t byte_to_sector (const struct inode*, off_t, bool);
 
 static bool inode_allocate (struct inode_disk*, off_t, bool);
 static bool inode_extend (struct inode_disk*, off_t);
@@ -38,12 +40,14 @@ static void inode_recur_free (block_sector_t*, size_t, int);
 /** In-memory inode. */
 struct inode 
   {
-    struct list_elem elem;              /**< Element in inode list. */
-    block_sector_t sector;              /**< Sector number of disk location. */
-    int open_cnt;                       /**< Number of openers. */
-    bool removed;                       /**< True if deleted, false otherwise. */
-    int deny_write_cnt;                 /**< 0: writes ok, >0: deny writes. */
-    struct inode_disk data;             /**< Inode content. */
+    struct list_elem elem;          /**< Element in inode list. */
+    block_sector_t sector;          /**< Sector number of disk location. */
+    int open_cnt;                   /**< Number of openers. */
+    bool removed;                   /**< True if deleted, false otherwise. */
+    int deny_write_cnt;             /**< 0: writes ok, >0: deny writes. */
+    int read_length;                /**< Current length visible to read */
+    struct inode_disk data;         /**< Inode content. */
+    struct lock lock;               /**< Lock for extension */
   };
 
 /** List of open inodes, so that opening a single inode twice
@@ -77,18 +81,9 @@ inode_create (block_sector_t sector, off_t length, bool dir)
   disk_inode = calloc (1, sizeof *disk_inode);
   if (disk_inode != NULL)
     {
-      //size_t sectors = bytes_to_sectors (length);
       if (inode_allocate (disk_inode, length, dir))
         {
           filesys_cache_write (sector, disk_inode);
-          /*if (sectors > 0) 
-            {
-              static char zeros[BLOCK_SECTOR_SIZE];
-              size_t i;
-              
-              //for (i = 0; i < sectors; i++) 
-                filesys_cache_write (disk_inode->start + i, zeros);
-            }*/
           success = true; 
         } 
       free (disk_inode);
@@ -128,7 +123,9 @@ inode_open (block_sector_t sector)
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
+  lock_init (&inode->lock);
   filesys_cache_read (inode->sector, &inode->data);
+  inode->read_length = inode->data.length;
   return inode;
 }
 
@@ -169,8 +166,6 @@ inode_close (struct inode *inode)
         {
           free_map_release (inode->sector, 1);
           inode_free (&inode->data);
-          //free_map_release (inode->data.start,
-          //                  bytes_to_sectors (inode->data.length)); 
         }
 
       free (inode); 
@@ -199,11 +194,11 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   while (size > 0) 
     {
       /* Disk sector to read, starting byte offset within sector. */
-      block_sector_t sector_idx = byte_to_sector (inode, offset);
+      block_sector_t sector_idx = byte_to_sector (inode, offset, true);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
-      off_t inode_left = inode_length (inode) - offset;
+      off_t inode_left = inode->read_length - offset;
       int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
       int min_left = MIN(inode_left, sector_left);
 
@@ -248,6 +243,7 @@ off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
                 off_t offset) 
 {
+  bool flag = false;
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
   uint8_t *bounce = NULL;
@@ -256,10 +252,16 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     return 0;
 
   /* Position exceeds EOF */
-  if (byte_to_sector (inode, size + offset - 1) == (block_sector_t) -1)
+  if (byte_to_sector (inode, size + offset - 1, true) == (block_sector_t) -1)
   {
+    flag = true;
+    /* Locks for directories are processed in directory.c */
+    if (!inode_is_dir (inode)) lock_acquire (&inode->lock);
     if (!inode_extend (&inode->data, offset + size))
+    {
+      if (!inode_is_dir (inode)) lock_release (&inode->lock);
       return 0;
+    }
     inode->data.length = size + offset;
     filesys_cache_write (inode->sector, &inode->data);
   }
@@ -267,13 +269,14 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   while (size > 0) 
     {
       /* Sector to write, starting byte offset within sector. */
-      block_sector_t sector_idx = byte_to_sector (inode, offset);
+      block_sector_t sector_idx = byte_to_sector (inode, offset, false);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
       off_t inode_left = inode_length (inode) - offset;
       int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
       int min_left = inode_left < sector_left ? inode_left : sector_left;
+      if (flag) min_left = sector_left;
 
       /* Number of bytes to actually write into this sector. */
       int chunk_size = size < min_left ? size : min_left;
@@ -313,6 +316,12 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     }
   free (bounce);
 
+  if (flag)
+  {
+    inode->read_length = inode->data.length;
+    if (!inode_is_dir (inode)) lock_release (&inode->lock);
+  }
+
   return bytes_written;
 }
 
@@ -325,7 +334,9 @@ inode_deny_write (struct inode *inode)
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 }
 
-static bool inode_allocate (struct inode_disk *disk_inode, off_t length, bool dir)
+/** Allocate space for inode */
+static bool 
+inode_allocate (struct inode_disk *disk_inode, off_t length, bool dir)
 {
   disk_inode->dir = dir;
   disk_inode->length = length;
@@ -354,7 +365,6 @@ static bool inode_extend (struct inode_disk *disk_inode, off_t length)
   if (sectors == 0) return true;
 
   /* We need to use doubly indirect blocks */
-  //printf ("doubly indirect blocks\n");
   return inode_recur_extend (&disk_inode->doubly_indirect_block, sectors, 2);
 }
 
@@ -366,7 +376,6 @@ bool inode_recur_extend (block_sector_t *sector, size_t sector_num, int k)
   {
     if (!free_map_allocate (1, sector))
       return false;
-    //printf ("%d\n", *sector);
     filesys_cache_write (*sector, zeros);
   }
   if (k == 0) return true;
@@ -381,7 +390,6 @@ bool inode_recur_extend (block_sector_t *sector, size_t sector_num, int k)
 
   for (size_t i = 0 ;i < entry_num; i++)
   {
-    //printf ("%d ", i);
     size_t actual_per_entry = MIN (sector_per_entry, sector_num);
     if (!inode_recur_extend (indirect_block + i, actual_per_entry, k - 1))
       return false;
@@ -410,14 +418,16 @@ static void inode_free (struct inode_disk *disk_inode)
     inode_recur_free (&disk_inode->doubly_indirect_block, sectors, 2);
 }
 
-static void inode_recur_free (block_sector_t *sector, size_t sector_num, int k)
+/**
+ * Recursively free the entries in an inode.
+ * K is the number of level of directed list SECTOR represents.
+ */
+static void 
+inode_recur_free (block_sector_t *sector, size_t sector_num, int k)
 {
   ASSERT (*sector != 0);
   if (k == 0)
-  {
-    //filesys_cache_evict (*sector);
     free_map_release (*sector, 1);
-  }
   else
   {
     size_t sector_per_entry = 1;
@@ -425,9 +435,11 @@ static void inode_recur_free (block_sector_t *sector, size_t sector_num, int k)
     size_t entry_num = DIV_ROUND_UP (sector_num, sector_per_entry);
     ASSERT (entry_num <= INDIRECT_BLOCK_NUM);  
 
+    /* Read from disk the indirect block */
     block_sector_t indirect_block[INDIRECT_BLOCK_NUM];
     filesys_cache_read (*sector, indirect_block);
 
+    /* Free each entry recursively */
     for (size_t i = 0 ;i < entry_num; i++)
     {
       size_t actual_per_entry = MIN (sector_per_entry, sector_num);
@@ -457,14 +469,27 @@ inode_length (const struct inode *inode)
   return inode->data.length;
 }
 
+/** Returns if INODE is a directory. */
 bool inode_is_dir (const struct inode *inode)
 {
   return inode->data.dir;
 }
 
+/** Returns if INODE has been removed. */
 bool inode_is_removed (const struct inode *inode)
 {
   return inode->removed;
+}
+
+/** API for the lock in struct inode */
+
+void inode_lock_acquire (struct inode *inode)
+{
+  lock_acquire (&inode->lock);
+}
+void inode_lock_release (struct inode *inode)
+{
+  lock_release (&inode->lock);
 }
 
 /** Returns the number of sectors to allocate for an inode SIZE
@@ -480,24 +505,19 @@ bytes_to_sectors (off_t size)
    Returns -1 if INODE does not contain data for a byte at offset
    POS. */
 static block_sector_t
-byte_to_sector (const struct inode *inode, off_t pos) 
+byte_to_sector (const struct inode *inode, off_t pos, bool flag) 
 {
   ASSERT (inode != NULL);
-  if (pos >= inode_length (inode)) return -1;
+  if (flag && pos >= inode_length (inode)) return -1;
   size_t sector_pos = pos / BLOCK_SECTOR_SIZE;
   if (sector_pos < DIRECT_BLOCK_NUM)
     return inode->data.direct_blocks[sector_pos];
   sector_pos -= DIRECT_BLOCK_NUM;
 
+  /** The sector entry is in doubly indirect blocks. */
   block_sector_t indirect_block[INDIRECT_BLOCK_NUM];
   filesys_cache_read (inode->data.doubly_indirect_block, indirect_block);
   filesys_cache_read (indirect_block [sector_pos / INDIRECT_BLOCK_NUM], 
                       indirect_block);
   return indirect_block [sector_pos % INDIRECT_BLOCK_NUM];
-  
-  
-  /*if (pos < inode->data.length)
-    return inode->data.start + pos / BLOCK_SECTOR_SIZE;
-  else
-    return -1;*/
 }

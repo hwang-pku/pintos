@@ -9,7 +9,7 @@ struct opened_file {
   struct file *file;    /**< File handle. */
   int fd;               /**< File descriptor. */
   struct list_elem elem;/**< Elem for opened_file_list. */
-  struct dir *dir;      /**< Directory of this file. */
+  struct dir *dir;      /**< Directory for this file. */
 };
 
 void syscall_init (void);

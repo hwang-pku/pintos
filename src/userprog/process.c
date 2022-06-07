@@ -135,10 +135,8 @@ start_process (void *file_name_)
     
   if (success)
   {
-    lock_acquire (&file_lock);
     cur_process->executable = filesys_open(file_name);
     file_deny_write (cur_process->executable);
-    lock_release (&file_lock);
   }
 
 failed:
@@ -194,7 +192,6 @@ process_create (void)
     p->cwd = dir_reopen(process_current ()->cwd);
   else
   {
-    // PROBLEM HERE?
     intr_enable ();
     p->cwd = dir_open_root ();
     intr_disable ();
@@ -270,7 +267,6 @@ process_exit (void)
       lock_release (&evict_lock);
 #endif
     }
-
     /* Free the resources occupied by dead childs. */
   while (!list_empty(&pcur->childs))  
   {
@@ -289,9 +285,7 @@ process_exit (void)
   /* file_close naturally allows writing to file. */
   if (pcur->load_success)
   {
-    lock_acquire (&file_lock);
     file_close (pcur->executable);
-    lock_release (&file_lock);
   }
 
   /* should be put here so frame could always refer to spl_pe */
@@ -364,7 +358,6 @@ process_current (void)
 static void
 free_process (struct process *p)
 {
-  lock_acquire (&file_lock);
   /* Close all the opened files. */
   while (!list_empty (&p->opened_files))
   {
@@ -374,7 +367,6 @@ free_process (struct process *p)
     free (f);
   }
   /* don't allow write to executable here since we do it in process_exit */
-  lock_release (&file_lock);
   
 #ifdef VM
   /* remove the frames occupied from frame table */
@@ -476,9 +468,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  lock_acquire (&file_lock);
   file = filesys_open (file_name);
-  lock_release (&file_lock);
 
   if (file == NULL) 
     {

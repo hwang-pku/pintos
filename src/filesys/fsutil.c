@@ -222,6 +222,7 @@ fsutil_append (char **argv)
   free (buffer);
 }
 
+/** Parse a path PATH into directory DIR and file name FILENAME */
 void fsutil_parse_path (const char *path, char *dir, char *filename)
 {
   size_t len = strlen (path);

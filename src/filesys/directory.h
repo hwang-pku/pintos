@@ -20,7 +20,7 @@ struct dir *dir_open_path (const char *);
 struct dir *dir_open_root (void);
 struct dir *dir_reopen (struct dir *);
 void dir_close (struct dir *);
-struct inode* dir_get_inode (struct dir *);
+struct inode* dir_get_inode (const struct dir *);
 struct inode* dir_get_parent (const struct dir*);
 
 /** Reading and writing. */
@@ -31,6 +31,6 @@ bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
 
 /** APIs. */
 bool dir_is_empty (const struct dir *);
-bool dir_is_removed (const struct dir *);
+bool dir_is_removed (struct dir *);
 
 #endif /**< filesys/directory.h */

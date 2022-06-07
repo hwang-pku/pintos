@@ -23,4 +23,7 @@ off_t inode_length (const struct inode *);
 bool inode_is_removed (const struct inode *);
 bool inode_is_dir (const struct inode *);
 
+void inode_lock_acquire (struct inode *);
+void inode_lock_release (struct inode *);
+
 #endif /**< filesys/inode.h */

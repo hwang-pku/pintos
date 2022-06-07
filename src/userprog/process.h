@@ -7,7 +7,6 @@
 #include "threads/synch.h"
 #include "userprog/syscall.h"
 #include "filesys/directory.h"
-//typedef int pid_t;
 
 struct process {
     int exit_status;                    /**< Exit status. */

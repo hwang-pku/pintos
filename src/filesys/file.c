@@ -169,6 +169,7 @@ file_tell (struct file *file)
   return file->pos;
 }
 
+/** Returns if FILE actually represents a directory */
 bool file_is_dir (struct file *file)
 {
   return inode_is_dir (file_get_inode (file));

@@ -35,6 +35,9 @@ void filesys_cache_init (void)
     }
 }
 
+/**
+ * Read from sector ID to BUFFER with cache enabled.
+ */
 void filesys_cache_read (block_sector_t id, void *buffer)
 {
     struct FCE *fce = filesys_load_cache (id);
@@ -42,6 +45,9 @@ void filesys_cache_read (block_sector_t id, void *buffer)
     lock_release (&fce->lock);
 }
 
+/**
+ * Write to sector ID from BUFFER with cache enabled.
+ */
 void filesys_cache_write (block_sector_t id, const void *buffer)
 {
     struct FCE *fce = filesys_load_cache (id);
@@ -50,33 +56,20 @@ void filesys_cache_write (block_sector_t id, const void *buffer)
     lock_release (&fce->lock);
 }
 
+/**
+ * Close the cache by flushing all the slots. 
+ */
 void filesys_cache_close ()
 {
     for (int i=0;i<CACHE_SIZE;i++)
         if (!fct[i].available)
-        {
-            lock_acquire (&fct[i].lock);
             filesys_cache_flush (fct+i);
-            lock_release (&fct[i].lock);
-        }
 }
 
-/*
-void filesys_cache_evict (block_sector_t id)
-{
-    struct FCE* fce = filesys_find_fce (id);
-    if (fce != NULL)
-        filesys_cache_flush (fce);
-}
-
-bool filesys_cache_empty (block_sector_t id)
-{
-    for (int i=0;i<CACHE_SIZE;i++)
-        if (!fct[i].available)
-            return false;
-    return true;
-}
-*/
+/**
+ * Load the content of sector ID into cache.
+ * Returns the cache entry of the slot. 
+ */
 static struct FCE* filesys_load_cache (block_sector_t id)
 {
     struct FCE* fce = filesys_find_fce (id);
@@ -94,6 +87,9 @@ static struct FCE* filesys_load_cache (block_sector_t id)
     return fce;
 }
 
+/**
+ * Get an available cache slot. 
+ */
 static struct FCE* filesys_get_cache (void)
 {
     static int clock = 0;
@@ -111,9 +107,11 @@ static struct FCE* filesys_get_cache (void)
     return fct + clock;
 }
 
+/**
+ * Flush a cache entry FCE to disk.
+ */
 static void filesys_cache_flush (struct FCE *fce)
 {
-    ASSERT (lock_held_by_current_thread (&fce->lock));
     ASSERT (fce != NULL && !fce->available);
     fce->available = true;
     if (fce->dirty)
@@ -123,14 +121,19 @@ static void filesys_cache_flush (struct FCE *fce)
     }
 }
 
+/** 
+ * Find a cache entry for block ID.
+ * Returns NULL if not in cache.
+ */
 static struct FCE* filesys_find_fce (block_sector_t id)
 {
     for (int i=0;i<CACHE_SIZE;i++)
     {
-        lock_acquire (&fct[i].lock);
         if (!fct[i].available && fct[i].sector_id == id)
+        {
+            lock_acquire (&fct[i].lock);
             return fct+i;
-        lock_release (&fct[i].lock);
+        }
     }
     return NULL;
 }
