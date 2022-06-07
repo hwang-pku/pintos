@@ -118,7 +118,7 @@ fsutil_extract (char **argv UNUSED)
           printf ("Putting '%s' into the file system...\n", file_name);
 
           /* Create destination file. */
-          if (!filesys_create (file_name, size))
+          if (!filesys_create (file_name, size, false))
             PANIC ("%s: create failed", file_name);
           dst = filesys_open (file_name);
           if (dst == NULL)
@@ -220,4 +220,31 @@ fsutil_append (char **argv)
   /* Finish up. */
   file_close (src);
   free (buffer);
+}
+
+void fsutil_parse_path (const char *path, char *dir, char *filename)
+{
+  size_t len = strlen (path);
+  char *tpath = (char*) malloc ((len + 1) * sizeof(char));
+  memcpy (tpath, path, sizeof(char) * (len + 1));
+
+  if (len > 0 && path[0] == '/')
+    *(dir++) = '/';
+
+  char *save_ptr, *prev_token = "";
+  for (char *token = strtok_r (tpath, "/", &save_ptr); token != NULL;
+       token = strtok_r (NULL, "/", &save_ptr))
+  {
+    len = strlen (prev_token);
+    if (len > 0)
+    {
+      memcpy (dir, prev_token, len * sizeof(char));
+      *(dir + len) = '/';
+      dir += len + 1;
+    }
+    prev_token = token;
+  }
+  *dir = 0;
+  memcpy (filename, prev_token, (strlen(prev_token) + 1) * sizeof(char));
+  free (tpath);
 }

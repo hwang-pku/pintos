@@ -15,6 +15,7 @@
 #include "userprog/pagedir.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "filesys/inode.h"
 #include "vm/page.h"
 #include "vm/frame.h"
 #include "vm/mmap.h"
@@ -23,7 +24,7 @@
 #define FD_ERROR -1
 
 /* The number of parameters required for each syscall. */
-int syscall_param_num[20] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1, 2, 1};
+int syscall_param_num[25] = {0, 1, 1, 1, 2, 1, 1, 1, 3, 3, 2, 1, 1, 2, 1, 1, 1, 2, 1, 1};
 
 static void syscall_handler (struct intr_frame *);
 
@@ -42,6 +43,11 @@ static unsigned tell (int fd);
 static void close (int fd);
 static mapid_t mmap (int, void*);
 static void munmap (mapid_t);
+static bool chdir (const char *);
+static bool mkdir (const char *);
+static bool readdir (int, char *);
+static bool isdir (int);
+static int inumber (int);
 
 static struct opened_file* get_opened_file_by_fd (int);
 static void check_ptr_validity (const void*);
@@ -101,6 +107,13 @@ syscall_handler (struct intr_frame *f UNUSED)
     case SYS_CLOSE: close (*(int*)args[0]); break;
     case SYS_MMAP: f->eax = mmap (*(int*)args[0], *(void**)args[1]); break;
     case SYS_MUNMAP: munmap (*(mapid_t*)args[0]); break;
+    case SYS_CHDIR: f->eax = chdir (*(char**)args[0]); break;
+    case SYS_MKDIR: f->eax = mkdir (*(char**)args[0]); break;
+    case SYS_READDIR: 
+      f->eax = readdir (*(int*)args[0], *(char**)args[1]); 
+      break;
+    case SYS_ISDIR: f->eax = isdir (*(int*)args[0]); break;
+    case SYS_INUMBER: f->eax = inumber (*(int*)args[0]); break;
     default: NOT_REACHED ();
   }
 }
@@ -159,7 +172,7 @@ create (const char *file, unsigned initial_size)
 
   /* Create the file. */
   lock_acquire (&file_lock);
-  bool ret = filesys_create (file, initial_size);
+  bool ret = filesys_create (file, initial_size, false);
   lock_release (&file_lock);
   return ret;
 }
@@ -187,6 +200,10 @@ open (const char *file)
 
   f->fd = cur_process->next_fd++;
   f->file = tmp_f;
+  if (file_is_dir (tmp_f))
+    f->dir = dir_open (file_get_inode (f->file));
+  else
+    f->dir = NULL;
   list_push_back (&cur_process->opened_files, &f->elem);
 
   return f->fd;
@@ -355,6 +372,8 @@ close (int fd)
 
   lock_acquire (&file_lock);
   file_close (of->file);
+  if (of->dir != NULL)
+    dir_close (of->dir);
   lock_release (&file_lock);
   free (of);
 }
@@ -375,7 +394,7 @@ mmap (int fd, void *addr)
   return map_file (file->file, addr);
 }
 
-void 
+static void 
 munmap (mapid_t mapid)
 {
   struct mmap_file *file = find_mmap_file (mapid);
@@ -383,6 +402,60 @@ munmap (mapid_t mapid)
     exit (-1);
 
   unmap_file (file);
+}
+
+static bool chdir (const char *dir)
+{
+  check_str_validity (dir);
+  struct dir* directory = dir_open_path (dir);
+  if (directory == NULL) return false;
+  dir_close (process_current ()->cwd);
+  process_current ()->cwd = directory;
+  return true;
+}
+
+static bool mkdir (const char *dir)
+{
+  check_str_validity (dir);
+  lock_acquire (&file_lock);
+  bool ret = filesys_create (dir, 0, true);
+  lock_release (&file_lock);
+
+  return ret;
+}
+
+static bool readdir (int fd, char *name)
+{
+  bool success = false;
+  lock_acquire (&file_lock);
+  struct opened_file *file = get_opened_file_by_fd (fd);
+  struct inode *inode = file_get_inode (file->file);
+  if (inode == NULL) goto done;
+  if (!inode_is_dir (inode)) goto done;
+  
+  success = dir_readdir (file->dir, name);
+  //dir_close (dir);
+done:
+  lock_release (&file_lock);
+  return success;
+}
+
+static bool isdir (int fd)
+{
+  lock_acquire (&file_lock);
+  struct inode *inode = file_get_inode (get_opened_file_by_fd (fd)->file);
+  bool ret = inode_is_dir (inode);
+  lock_release (&file_lock);
+  return ret;
+}
+
+static int inumber (int fd)
+{
+  lock_acquire (&file_lock);
+  struct inode *inode = file_get_inode (get_opened_file_by_fd (fd)->file);
+  int inumber = inode_get_inumber (inode);
+  lock_release (&file_lock);
+  return inumber;
 }
 
 /** Get opened files by its fd in current process. */
@@ -426,7 +499,10 @@ static bool try_load_page (const void *upage)
   if (upage == NULL || !is_user_vaddr (upage))
     return false;
   if (pagedir_get_page (thread_current ()->pagedir, upage) != NULL)
+  {
+    set_unevictable (pagedir_get_page (thread_current()->pagedir, upage));
     return true;
+  }
   /* page not present */
   return load_page (pg_round_down (upage), false);
 }

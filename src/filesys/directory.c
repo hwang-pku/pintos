@@ -5,6 +5,8 @@
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
+#include "userprog/process.h"
 
 /** A directory. */
 struct dir 
@@ -21,12 +23,15 @@ struct dir_entry
     bool in_use;                        /**< In use or free? */
   };
 
+static bool dir_add_parent (struct dir*, struct dir*);
+
 /** Creates a directory with space for ENTRY_CNT entries in the
-   given SECTOR.  Returns true if successful, false on failure. */
+   given SECTOR.  Returns true if successful, false on failure. 
+   Open a bonus entry slot for parent entry. */
 bool
 dir_create (block_sector_t sector, size_t entry_cnt)
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry), true);
+  return inode_create (sector, entry_cnt * (sizeof (struct dir_entry) + 1), true);
 }
 
 /** Opens and returns the directory for the given INODE, of which
@@ -38,7 +43,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = 0;
+      dir->pos = sizeof(struct dir_entry);
       return dir;
     }
   else
@@ -48,6 +53,41 @@ dir_open (struct inode *inode)
       return NULL; 
     }
 }
+
+/** Opens and returns the directory for the given PATH.
+    Returns a null pointer on failure. */
+struct dir *dir_open_path (const char *path)
+{
+  size_t len = strlen(path);
+  char tpath[len + 1];
+  strlcpy (tpath, path, len+1);
+  struct dir *cwd = NULL, *nxt;
+  struct process *p = process_current ();
+  if ((len != 0&&path[0] == '/') || p == NULL || p->cwd == NULL)
+    cwd = dir_open_root ();
+  else
+    cwd = dir_reopen (p->cwd);
+  if (len == 0) return cwd;
+  char *save_ptr;
+  for (char *token = strtok_r (tpath, "/", &save_ptr); token != NULL;
+       token = strtok_r (NULL, "/", &save_ptr))
+  {
+    struct inode *inode;
+    bool flag = dir_lookup(cwd,token,&inode)&&((nxt=dir_open(inode))!=NULL);
+    dir_close (cwd);
+    if (!flag) return false;
+    cwd = nxt;
+  }
+  /* Return NULL if dir does not exist any more */
+  if (inode_is_removed (dir_get_inode (cwd)))
+  {
+    dir_close (cwd);
+    return NULL;
+  }
+
+  return cwd;
+}
+
 
 /** Opens the root directory and returns a directory for it.
    Return true if successful, false on failure. */
@@ -114,7 +154,8 @@ lookup (const struct dir *dir, const char *name,
 /** Searches DIR for a file with the given NAME
    and returns true if one exists, false otherwise.
    On success, sets *INODE to an inode for the file, otherwise to
-   a null pointer.  The caller must close *INODE. */
+   a null pointer.  The caller must close *INODE. 
+   This function also supports "." and ".." */
 bool
 dir_lookup (const struct dir *dir, const char *name,
             struct inode **inode) 
@@ -124,7 +165,11 @@ dir_lookup (const struct dir *dir, const char *name,
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
-  if (lookup (dir, name, &e, NULL))
+  if (!strcmp (name, "."))
+    *inode = inode_reopen (dir->inode);
+  else if (!strcmp (name, ".."))
+    *inode = dir_get_parent (dir);
+  else if (lookup (dir, name, &e, NULL))
     *inode = inode_open (e.inode_sector);
   else
     *inode = NULL;
@@ -139,7 +184,8 @@ dir_lookup (const struct dir *dir, const char *name,
    Fails if NAME is invalid (i.e. too long) or a disk or memory
    error occurs. */
 bool
-dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
+dir_add (struct dir *dir, const char *name, 
+         block_sector_t inode_sector, bool is_dir)
 {
   struct dir_entry e;
   off_t ofs;
@@ -156,6 +202,19 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   if (lookup (dir, name, NULL, NULL))
     goto done;
 
+  /* Check that dir is not removed */
+  if (dir_is_removed (dir))
+    goto done;
+
+  /* If the inode added is a directory */
+  if (is_dir)
+  {
+    struct dir* child = dir_open (inode_open (inode_sector));
+    bool flag = dir_add_parent (child, dir);
+    free (child);
+    if (!flag) goto done;
+  }
+
   /* Set OFS to offset of free slot.
      If there are no free slots, then it will be set to the
      current end-of-file.
@@ -163,7 +222,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
      inode_read_at() will only return a short read at end of file.
      Otherwise, we'd need to verify that we didn't get a short
      read due to something intermittent such as low memory. */
-  for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  for (ofs = sizeof e; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (!e.in_use)
       break;
@@ -201,6 +260,15 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+  /* Avoid removing non-empty dir. */
+  if (inode_is_dir (inode))// && dir_is_empty (dir_open (inode)))
+  {
+    struct dir *dir = dir_open (inode);
+    bool is_empty = dir_is_empty (dir);
+    free (dir);
+    if (!is_empty) goto done;
+  }
+
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
@@ -233,4 +301,46 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
         } 
     }
   return false;
+}
+
+struct inode* dir_get_parent (const struct dir *dir)
+{
+  struct dir_entry e;
+  if (inode_get_inumber (dir->inode) == ROOT_DIR_SECTOR)
+    return inode_reopen (dir->inode);
+  
+  /* If dir already removed */
+  if (inode_is_removed (dir_get_inode (dir)))
+    return NULL;
+  
+  ASSERT (inode_read_at (dir->inode, &e, sizeof e, 0) == sizeof e);
+  return inode_open (e.inode_sector);
+}
+
+/**
+ * Checks whether a dir is empty.
+ * Returns true iff dir is empty.
+ */
+bool dir_is_empty (const struct dir *dir)
+{
+  struct dir_entry e;
+  for (off_t ofs = sizeof e; 
+       inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e; 
+       ofs += sizeof e) 
+    if (e.in_use)
+      return false;
+  return true;
+}
+
+bool dir_is_removed (const struct dir *dir)
+{
+  return inode_is_removed (dir_get_inode (dir));
+}
+
+static bool dir_add_parent (struct dir *dir, struct dir *parent)
+{
+  struct dir_entry e;
+  e.in_use = true;
+  e.inode_sector = inode_get_inumber(parent->inode);
+  return inode_write_at (dir->inode, &e, sizeof e, 0) == sizeof e;
 }

@@ -17,6 +17,8 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#include "filesys/filesys.h"
+#include "filesys/directory.h"
 
 /** Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top

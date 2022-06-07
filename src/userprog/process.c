@@ -184,6 +184,18 @@ process_create (void)
 
   hash_init (&p->spl_page_table, hash_spl_pe, hash_less_spl_pe, NULL);
   hash_init (&p->mmap_table, hash_mmap_file, hash_less_mmap_file, NULL);
+
+  if (!pintos_booted)
+    p->cwd = NULL;
+  else if (process_current () != NULL && process_current ()->cwd != NULL)
+    p->cwd = dir_reopen(process_current ()->cwd);
+  else
+  {
+    // PROBLEM HERE?
+    intr_enable ();
+    p->cwd = dir_open_root ();
+    intr_disable ();
+  }
   return p;  
 }
 
@@ -227,8 +239,10 @@ process_exit (void)
   
   list_remove (&pcur->all_elem);
   
+//#ifdef VM
   /* unmap all the mapped files */
   unmap_mmap_table (&pcur->mmap_table);
+//#endif
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */

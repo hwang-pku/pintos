@@ -226,18 +226,22 @@ static bool load_frame (struct spl_pe *pe, void *kpage)
         {
             ASSERT (pe->file != NULL);
             ASSERT (pe->read_bytes + pe->zero_bytes == PGSIZE);
-            lock_acquire (&file_lock);
+            bool flag = lock_held_by_current_thread (&file_lock);
+            if (!flag)
+                lock_acquire (&file_lock);
             off_t prev_pos = file_tell (pe->file);
             file_seek (pe->file, pe->offset);
             /* file read failed */
             if (file_read (pe->file, kpage, pe->read_bytes) 
                 != (int) pe->read_bytes)
             {
-                lock_release (&file_lock);
+                if (!flag)
+                    lock_release (&file_lock);
                 return false; 
             }
             file_seek (pe->file, prev_pos);
-            lock_release (&file_lock);
+            if (!flag)
+                lock_release (&file_lock);
         }
         memset (kpage + pe->read_bytes, 0, pe->zero_bytes);
     }

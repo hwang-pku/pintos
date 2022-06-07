@@ -21,4 +21,5 @@ void frame_table_init (void);
 void remove_frame (void*);
 struct frame* get_frame (struct spl_pe*, bool);
 void set_evictable (void*);
+void set_unevictable (void*);
 #endif

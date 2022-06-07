@@ -156,6 +156,7 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+//#ifdef VM
   /* null pointer */
   if (fault_addr == NULL 
   /* privacy violation */
@@ -164,6 +165,7 @@ page_fault (struct intr_frame *f)
      || (!load_page (pg_round_down (fault_addr), true)
   /* stack growth failed */ 
      && !grow_stack (pg_round_down (fault_addr), f->esp)))
+//#endif
   {
    printf ("Page fault at %p: %s error %s page in %s context.\n",
           fault_addr,

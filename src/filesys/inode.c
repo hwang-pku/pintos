@@ -200,7 +200,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
     {
       /* Disk sector to read, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode, offset);
-      //printf ("%d, %d\n", offset, sector_idx);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
@@ -453,6 +452,16 @@ off_t
 inode_length (const struct inode *inode)
 {
   return inode->data.length;
+}
+
+bool inode_is_dir (const struct inode *inode)
+{
+  return inode->data.dir;
+}
+
+bool inode_is_removed (const struct inode *inode)
+{
+  return inode->removed;
 }
 
 /** Returns the number of sectors to allocate for an inode SIZE

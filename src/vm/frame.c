@@ -187,6 +187,15 @@ void set_evictable (void *frame)
     lock_release (&ft_lock);
 }
 
+void set_unevictable (void *frame)
+{
+    lock_acquire (&ft_lock);
+    struct frame *fe = find_frame (frame);
+    if (fe != NULL)
+        fe->evictable = false;
+    lock_release (&ft_lock);
+}
+
 /* helper functions */
 
 /* previous frame in a circular queue */

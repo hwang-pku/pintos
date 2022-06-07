@@ -6,6 +6,7 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include "userprog/syscall.h"
+#include "filesys/directory.h"
 //typedef int pid_t;
 
 struct process {
@@ -30,6 +31,7 @@ struct process {
     int next_fd;                        /**< Next fd assigned. */
     struct hash spl_page_table;         /**< SPT */
     struct hash mmap_table;             /**< The table for mmap entries */
+    struct dir *cwd;                    /**< CWD of this process. */
 };
 
 void process_init (void);

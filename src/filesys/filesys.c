@@ -7,6 +7,7 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "filesys/cache.h"
+#include "filesys/fsutil.h"
 
 
 /** Partition that contains the file system. */
@@ -41,19 +42,23 @@ filesys_done (void)
   free_map_close ();
 }
 
-/** Creates a file named NAME with the given INITIAL_SIZE.
+/** Creates a file or directory named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool
-filesys_create (const char *name, off_t initial_size) 
+filesys_create (const char *name, off_t initial_size, bool is_dir) 
 {
   block_sector_t inode_sector = 0;
-  struct dir *dir = dir_open_root ();
+  size_t len = strlen (name);
+  char directory[len+1], filename[len+1];
+  fsutil_parse_path (name, directory, filename);
+  //struct dir *dir = dir_open_root ();
+  struct dir *dir = dir_open_path (directory);
   bool success = (dir != NULL
                   && free_map_allocate (1, &inode_sector)
-                  && inode_create (inode_sector, initial_size, false)
-                  && dir_add (dir, name, inode_sector));
+                  && inode_create (inode_sector, initial_size, is_dir)
+                  && dir_add (dir, filename, inode_sector, is_dir));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
@@ -69,12 +74,24 @@ filesys_create (const char *name, off_t initial_size)
 struct file *
 filesys_open (const char *name)
 {
-  struct dir *dir = dir_open_root ();
+  size_t len = strlen (name);
+  if (len == 0) return NULL;
+  char directory[len+1], filename[len+1];
+  fsutil_parse_path (name, directory, filename);
+
+  //struct dir *dir = dir_open_root ();
+  struct dir *dir = dir_open_path (directory);
   struct inode *inode = NULL;
 
-  if (dir != NULL)
-    dir_lookup (dir, name, &inode);
+  if (dir != NULL && strlen (filename) > 0)
+    dir_lookup (dir, filename, &inode);
+  else if (strlen (filename) == 0)
+    inode = dir_get_inode (dir);
   dir_close (dir);
+
+  /* Fail if the file has already been removed. */
+  if (inode == NULL || inode_is_removed (inode))
+    return NULL;
 
   return file_open (inode);
 }
@@ -86,8 +103,12 @@ filesys_open (const char *name)
 bool
 filesys_remove (const char *name) 
 {
-  struct dir *dir = dir_open_root ();
-  bool success = dir != NULL && dir_remove (dir, name);
+  size_t len = strlen(name);
+  char directory [len + 1], filename [len + 1];
+  fsutil_parse_path (name, directory, filename);
+  //struct dir *dir = dir_open_root ();
+  struct dir *dir = dir_open_path (directory);
+  bool success = dir != NULL && dir_remove (dir, filename);
   dir_close (dir); 
 
   return success;
