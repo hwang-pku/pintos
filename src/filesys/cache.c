@@ -10,13 +10,13 @@
 
 /* Filesys Cache Entry */
 struct FCE {
-    block_sector_t sector_id;
-    uint8_t cache[BLOCK_SECTOR_SIZE];
+    block_sector_t sector_id;           /**< Sector number */
+    uint8_t cache[BLOCK_SECTOR_SIZE];   /**< Cache slot */
 
-    bool available;
-    bool dirty;
-    bool accessed;
-    struct lock lock;
+    bool available;                     /**< True if this slot is empty */
+    bool dirty;                         /**< True if dirty */
+    bool accessed;                      /**< True if accessed recently */
+    struct lock lock;                   /**< Lock for synchronization */
 };
 
 static struct FCE fct[CACHE_SIZE];
