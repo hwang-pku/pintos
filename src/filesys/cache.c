@@ -16,10 +16,10 @@ struct FCE {
     bool available;
     bool dirty;
     bool accessed;
+    struct lock lock;
 };
 
 static struct FCE fct[CACHE_SIZE];
-static struct lock fc_lock;
 
 static struct FCE* filesys_load_cache (block_sector_t);
 static struct FCE* filesys_get_cache (void);
@@ -28,46 +28,37 @@ static struct FCE* filesys_find_fce (block_sector_t);
 
 void filesys_cache_init (void)
 {
-    lock_init (&fc_lock);
     for (int i=0;i<CACHE_SIZE;i++)
+    {
         fct[i].available = true;
+        lock_init (&fct[i].lock);
+    }
 }
 
 void filesys_cache_read (block_sector_t id, void *buffer)
 {
-    lock_acquire (&fc_lock); 
     struct FCE *fce = filesys_load_cache (id);
     memcpy (buffer, fce->cache, BLOCK_SECTOR_SIZE);
-    lock_release (&fc_lock);
+    lock_release (&fce->lock);
 }
 
 void filesys_cache_write (block_sector_t id, const void *buffer)
 {
-    lock_acquire (&fc_lock);
     struct FCE *fce = filesys_load_cache (id);
     memcpy (fce->cache, buffer, BLOCK_SECTOR_SIZE);
     fce->dirty = true;
-    lock_release (&fc_lock);
+    lock_release (&fce->lock);
 }
 
 void filesys_cache_close ()
 {
-    lock_acquire (&fc_lock);
     for (int i=0;i<CACHE_SIZE;i++)
         if (!fct[i].available)
         {
-            if (fct[i].sector_id == FREE_MAP_SECTOR)
-            {
-                for (int j = 0 ;j<BLOCK_SECTOR_SIZE;j++)
-                    printf ("%d", fct[i].cache[j]);
-                printf("\n");
-            }
+            lock_acquire (&fct[i].lock);
             filesys_cache_flush (fct+i);
-            printf ("%d\n", fct[i].sector_id);
+            lock_release (&fct[i].lock);
         }
-    lock_release (&fc_lock);
-    struct inode *inode = inode_open (0);
-    printf ("length: %d\n", inode_length (inode));
 }
 
 /*
@@ -105,13 +96,14 @@ static struct FCE* filesys_load_cache (block_sector_t id)
 
 static struct FCE* filesys_get_cache (void)
 {
-    ASSERT (lock_held_by_current_thread (&fc_lock));
     static int clock = 0;
     while (true)
     {
+        lock_acquire (&fct[clock].lock);
         if (fct[clock].available || !fct[clock].accessed)
             break;
         fct[clock].accessed = false;
+        lock_release (&fct[clock].lock);
         clock = (clock+1)%CACHE_SIZE;
     }
     if (!fct[clock].available)
@@ -121,7 +113,7 @@ static struct FCE* filesys_get_cache (void)
 
 static void filesys_cache_flush (struct FCE *fce)
 {
-    ASSERT (lock_held_by_current_thread (&fc_lock));
+    ASSERT (lock_held_by_current_thread (&fce->lock));
     ASSERT (fce != NULL && !fce->available);
     fce->available = true;
     if (fce->dirty)
@@ -134,7 +126,11 @@ static void filesys_cache_flush (struct FCE *fce)
 static struct FCE* filesys_find_fce (block_sector_t id)
 {
     for (int i=0;i<CACHE_SIZE;i++)
+    {
+        lock_acquire (&fct[i].lock);
         if (!fct[i].available && fct[i].sector_id == id)
             return fct+i;
+        lock_release (&fct[i].lock);
+    }
     return NULL;
 }
