@@ -1,10 +1,12 @@
 #include "filesys/cache.h"
+#include <stdio.h>
 #include <string.h>
 #include <kernel/list.h>
 #include <devices/block.h>
 #include "threads/malloc.h"
 #include "threads/synch.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
 
 /* Filesys Cache Entry */
 struct FCE {
@@ -48,6 +50,42 @@ void filesys_cache_write (block_sector_t id, const void *buffer)
     lock_release (&fc_lock);
 }
 
+void filesys_cache_close ()
+{
+    lock_acquire (&fc_lock);
+    for (int i=0;i<CACHE_SIZE;i++)
+        if (!fct[i].available)
+        {
+            if (fct[i].sector_id == FREE_MAP_SECTOR)
+            {
+                for (int j = 0 ;j<BLOCK_SECTOR_SIZE;j++)
+                    printf ("%d", fct[i].cache[j]);
+                printf("\n");
+            }
+            filesys_cache_flush (fct+i);
+            printf ("%d\n", fct[i].sector_id);
+        }
+    lock_release (&fc_lock);
+    struct inode *inode = inode_open (0);
+    printf ("length: %d\n", inode_length (inode));
+}
+
+/*
+void filesys_cache_evict (block_sector_t id)
+{
+    struct FCE* fce = filesys_find_fce (id);
+    if (fce != NULL)
+        filesys_cache_flush (fce);
+}
+
+bool filesys_cache_empty (block_sector_t id)
+{
+    for (int i=0;i<CACHE_SIZE;i++)
+        if (!fct[i].available)
+            return false;
+    return true;
+}
+*/
 static struct FCE* filesys_load_cache (block_sector_t id)
 {
     struct FCE* fce = filesys_find_fce (id);

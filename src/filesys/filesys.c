@@ -40,6 +40,7 @@ void
 filesys_done (void) 
 {
   free_map_close ();
+  filesys_cache_close ();
 }
 
 /** Creates a file or directory named NAME with the given INITIAL_SIZE.

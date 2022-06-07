@@ -414,7 +414,10 @@ static void inode_recur_free (block_sector_t *sector, size_t sector_num, int k)
 {
   ASSERT (*sector != 0);
   if (k == 0)
+  {
+    //filesys_cache_evict (*sector);
     free_map_release (*sector, 1);
+  }
   else
   {
     size_t sector_per_entry = 1;
