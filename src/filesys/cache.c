@@ -38,20 +38,28 @@ void filesys_cache_init (void)
 /**
  * Read from sector ID to BUFFER with cache enabled.
  */
-void filesys_cache_read (block_sector_t id, void *buffer)
+void 
+filesys_cache_read (block_sector_t id, void *buffer, size_t ofs, size_t size)
 {
     struct FCE *fce = filesys_load_cache (id);
-    memcpy (buffer, fce->cache, BLOCK_SECTOR_SIZE);
+    memcpy (buffer, fce->cache + ofs, size);
     lock_release (&fce->lock);
+    if (id < block_size (fs_device) - 1)
+    {
+        fce = filesys_load_cache (id + 1);
+        lock_release (&fce->lock);
+    }
 }
 
 /**
  * Write to sector ID from BUFFER with cache enabled.
  */
-void filesys_cache_write (block_sector_t id, const void *buffer)
+void 
+filesys_cache_write (block_sector_t id, const void *buffer, 
+                     size_t ofs, size_t size)
 {
     struct FCE *fce = filesys_load_cache (id);
-    memcpy (fce->cache, buffer, BLOCK_SECTOR_SIZE);
+    memcpy (fce->cache + ofs, buffer, size);
     fce->dirty = true;
     lock_release (&fce->lock);
 }
